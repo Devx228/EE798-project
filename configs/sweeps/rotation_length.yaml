@@ -1,0 +1,19 @@
+# RQ2b ablation: does the rotational SSM's failure on Z3 depend on the training length?
+# CPU preview: 97% at length 16, 81% at 32, 48% at 64 -- and no length generalisation from any of them.
+# Checkpoints are saved so scripts/inspect_rotation.py can read the learned angles.
+name: rotation_length
+base: ../parity.yaml
+overrides:
+  task.group: Z3
+  model.pattern: M
+  model.ssm: {d_state: 16, expand: 2, head_dim: 32, rotary: true}
+  train.save_checkpoint: true
+  eval:
+    - {name: len64, seq_len: 64}
+    - {name: len256, seq_len: 256}
+    - {name: len512, seq_len: 512}
+axes:
+  train_len:
+    - {label: T16, set: {task.seq_len: 16}}
+    - {label: T32, set: {task.seq_len: 32}}
+    - {label: T64, set: {task.seq_len: 64}}

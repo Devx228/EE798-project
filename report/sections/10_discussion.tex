@@ -3,6 +3,24 @@
 % Guideline 2.11: why good/bad, baselines, hyperparameters, failure cases, compute, limitations. Ablations.
 \paragraph{Failure case 1: recall beyond state capacity.} \todo{}
 \paragraph{Failure case 2: parity with positive decays.} \todo{}
+\paragraph{Failure case 3: expressible but not learned (rotational SSM on $\mathbb{Z}_3$).}
+\todo{Rewrite in own words once the GPU sweep (rotation\_length) is in. CPU preview: the rotational SSM
+can represent $\mathbb{Z}_3$ exactly (unit test: $\theta=2\pi/3$ returns the state after 3 steps), yet
+training reaches 97\% / 81\% / 48\% at training lengths 16 / 32 / 64 and never generalises to 512.
+Reading the layer-1 angles off the weights (Fig.~\ref{fig:rotation-angles}) shows why: the learned
+rotations are not multiples of $120^\circ$ and the decays are 0.37--0.99, i.e.\ the network found a
+short-horizon shortcut instead of the group rotation. Hypothesis for the length dependence: the loss
+depends on $\cos(k\theta)$ for $k\le T$, so its landscape in $\theta$ oscillates faster as $T$ grows.
+Contrast: negative eigenvalues and $\beta\to 2$ reflections are \emph{saturating} parametrisations
+(approached exponentially), whereas a rotation angle must hit an interior value exactly.}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{figures/rotation_angles}
+\caption{Learned layer-1 rotation angles of the rotational SSM on $\mathbb{Z}_3$, relative to token 0.
+Dashed lines: the $\pm120^\circ$ rotations that solve the task. \todo{regenerate from GPU checkpoints}}
+\label{fig:rotation-angles}
+\end{figure}
+
 \paragraph{Hyperparameter sensitivity.} \todo{Attention head width and learning rate on MQAR
 (first observation: one 64-dim head learns the lookup, 2--4 narrower heads stall near 53\%).}
 \paragraph{Ablations.} \todo{state size $N$, chunk size (speed only), short convolution on/off.}

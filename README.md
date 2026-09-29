@@ -105,6 +105,8 @@ docs/               setup notes
 - [x] Synthetic tasks, training loop, sweeps, benchmark harness
 - [x] Triton forward scan kernel (interpreter-tested)
 - [x] State-tracking sweep on the RTX 4050, plotting script (`scripts/plot_results.py`)
+- [x] Extensions: rotational SSM (Mamba-3 style) and DeltaProduct, with tests
+- [ ] GPU sweeps for the extensions (`state_tracking`, `rotation_length`), angle figure (`scripts/inspect_rotation.py`)
 - [ ] Remaining sweeps, qualitative figures (state heatmaps, attention maps)
 - [ ] Triton backward kernel, then compare with the chunked PyTorch path during training
 - [ ] Stretch: complex / rotational transitions (Mamba-3 style) for Z_m, small TinyStories language model
