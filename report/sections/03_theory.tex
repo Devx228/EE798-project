@@ -1,0 +1,21 @@
+\section{Theory and Conceptual Explanation}
+\label{sec:theory}
+% Guideline 2.4: intuition, assumptions, architecture, design choices, advantages, limitations. Diagrams!
+
+\todo{Figure: one block of each mixer (attention / selective SSM / Gated DeltaNet) side by side.}
+
+\paragraph{Two kinds of memory.} \todo{Attention = exact, growing, content-addressable memory.
+Recurrent mixer = fixed-size summary updated online. Intuition for why recall degrades once the
+number of stored facts exceeds what the state can hold.}
+
+\paragraph{Selectivity.} \todo{Why input-dependent $\Delta_t$, $B_t$, $C_t$ let the SSM choose what to
+store and what to forget (needed for selective copying).}
+
+\paragraph{The delta rule as online regression.} \todo{Erase-then-write: the state behaves as a
+key--value memory updated by one gradient step on $\tfrac12\lVert S^\top k_t - v_t\rVert^2$.}
+
+\paragraph{Why eigenvalues matter for state tracking.} \todo{Parity needs a sign flip; decays in
+$(0,1)$ can only shrink. Rotations for $\mathbb{Z}_m$; non-diagonal transitions for $S_3$.}
+
+\paragraph{Advantages and limitations.} \todo{Linear time, constant-memory decoding vs.\ lossy recall,
+restricted expressivity, sensitivity to hyperparameters.}

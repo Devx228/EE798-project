@@ -1,0 +1,20 @@
+\section{Introduction and Motivation}
+\label{sec:intro}
+% Guideline 2.2: problem, importance, where useful, challenges, scope.
+\todo{Motivate: softmax attention costs $O(T^2)$ time and an $O(T)$ KV cache at inference. Linear-time
+recurrent mixers (Mamba-2/3, Gated DeltaNet, KDA) are now used in production hybrids (Qwen3-Next,
+Kimi Linear, Granite 4.0, Nemotron-H) \citep{kimi2025linear,dao2024ssd,yang2025gated}.}
+
+\todo{The price: all of the past is compressed into a fixed-size state (``fading memory''). Which
+pattern-recognition abilities survive this compression, which do not, and why?}
+
+\paragraph{Research questions.}
+\begin{enumerate}
+  \item[\textbf{RQ1}] How much associative recall can a fixed-size state support?
+  \item[\textbf{RQ2}] Which state transitions can track state (parity, modular counting, permutations)?
+  \item[\textbf{RQ3}] How many attention layers does a hybrid need, and where should they go?
+  \item[\textbf{RQ4}] What does the linear-time mixer buy in latency and memory on a consumer GPU?
+\end{enumerate}
+
+\paragraph{Contributions.} \todo{List: from-scratch implementations with verified parallel forms; a
+Triton scan kernel; controlled experiments on one GPU; failure analysis.}

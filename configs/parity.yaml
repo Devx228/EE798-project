@@ -1,0 +1,20 @@
+# State tracking in Z_2 (running parity). Train on length 64, test on 4x / 8x longer sequences.
+task:
+  name: group
+  group: Z2
+  seq_len: 64
+eval:
+  - {name: len256, seq_len: 256}
+  - {name: len512, seq_len: 512}
+model:
+  d_model: 128
+  n_layers: 2
+  pattern: M
+  mlp_ratio: 2
+  neg_eigen: false  # flip to true for the Grazzi et al. fix
+train:
+  steps: 4000
+  batch_size: 128
+  lr: 1.0e-3
+  eval_every: 250
+out_dir: runs/parity

@@ -1,0 +1,24 @@
+# Multi-query associative recall: can the model look up values by key?
+task:
+  name: mqar
+  seq_len: 256
+  num_kv_pairs: 16
+  vocab_size: 4096
+eval: []            # e.g. [{name: kv32, num_kv_pairs: 32}]
+model:
+  d_model: 128
+  n_layers: 2
+  pattern: M        # A = attention, M = selective SSM, D = Gated DeltaNet
+  mlp_ratio: 0
+  # One wide attention head learns the induction-style lookup far more reliably than several
+  # narrow ones at this scale (see the smoke-test notes in README).
+  attn: {n_heads: 1}
+  ssm: {d_state: 16, expand: 2, head_dim: 32}
+  deltanet: {n_heads: 2, gated: true}
+train:
+  steps: 3000
+  batch_size: 64
+  lr: 1.0e-3
+  eval_every: 250
+  early_stop_acc: 0.995
+out_dir: runs/mqar

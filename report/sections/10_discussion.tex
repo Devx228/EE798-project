@@ -1,0 +1,12 @@
+\section{Analysis and Discussion}
+\label{sec:discussion}
+% Guideline 2.11: why good/bad, baselines, hyperparameters, failure cases, compute, limitations. Ablations.
+\paragraph{Failure case 1: recall beyond state capacity.} \todo{}
+\paragraph{Failure case 2: parity with positive decays.} \todo{}
+\paragraph{Hyperparameter sensitivity.} \todo{Attention head width and learning rate on MQAR
+(first observation: one 64-dim head learns the lookup, 2--4 narrower heads stall near 53\%).}
+\paragraph{Ablations.} \todo{state size $N$, chunk size (speed only), short convolution on/off.}
+\paragraph{Computational cost.} \todo{Where the linear-time mixers win on the RTX 4050, and where
+attention (FlashAttention via SDPA) is still faster at short lengths; roofline analysis of the Triton
+kernel.}
+\paragraph{Limitations.} \todo{Small scale, synthetic tasks, single GPU, forward-only kernel.}

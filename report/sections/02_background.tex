@@ -1,0 +1,24 @@
+\section{Background and Related Work}
+\label{sec:background}
+% Guideline 2.3: NOT a chronological list -- organise by idea and relate each to this project.
+
+\paragraph{From attention to linear recurrences.} \todo{Attention \citep{vaswani2017attention};
+linear attention as an RNN \citep{katharopoulos2020transformers}; fast-weight view
+\citep{schlag2021linear}.}
+
+\paragraph{Structured and selective state-space models.} \todo{S4 \citep{gu2022s4}: LTI, convolutional
+view. Mamba \citep{gu2023mamba}: input-dependent (selective) parameters. Mamba-2 / SSD
+\citep{dao2024ssd}: scalar decay, duality with masked attention, chunkwise algorithm. Mamba-3
+\citep{mamba3}: trapezoidal discretisation, complex states, MIMO.}
+
+\paragraph{Delta-rule models.} \todo{DeltaNet and its chunkwise algorithm \citep{yang2024deltanet};
+Gated DeltaNet \citep{yang2025gated}; KDA / Kimi Linear \citep{kimi2025linear}.}
+
+\paragraph{Known limitations.} \todo{Recall and copying \citep{arora2024zoology,jelassi2024repeat};
+state tracking and the ``illusion of state'' \citep{merrill2024illusion}; negative eigenvalues
+\citep{grazzi2025unlocking}, DeltaProduct \citep{siems2025deltaproduct}; attention layers carry
+retrieval in hybrids \citep{michalak2025some}; Mamba unnecessary for short-sequence vision
+\citep{yu2025mambaout}.}
+
+\paragraph{Where this project sits.} \todo{Unifies these three families in one codebase under one
+training protocol, and reproduces two limitations and their fixes at small scale.}

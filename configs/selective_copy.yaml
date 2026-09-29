@@ -1,0 +1,19 @@
+# Selective copying: remember 16 data tokens scattered among noise, reproduce them in order.
+task:
+  name: selective_copy
+  seq_len: 256
+  num_tokens: 16
+  vocab_size: 16
+eval:
+  - {name: len1024, seq_len: 1024}
+model:
+  d_model: 128
+  n_layers: 2
+  pattern: M
+  mlp_ratio: 0
+train:
+  steps: 3000
+  batch_size: 64
+  lr: 1.0e-3
+  eval_every: 250
+out_dir: runs/selective_copy

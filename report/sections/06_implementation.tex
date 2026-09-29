@@ -1,0 +1,27 @@
+\section{Implementation and Code Snippets}
+\label{sec:impl}
+% Guideline 2.7: meaningful snippets + explanation; state clearly what was written by you.
+
+All components were implemented from scratch in PyTorch (repository: \todo{URL}). No external
+SSM / linear-attention library is used. Correctness is established by unit tests that compare every
+chunked algorithm with its step-by-step recurrence in float64 (max error $\sim10^{-15}$) and every
+model's recurrent decoding with its parallel forward pass.
+
+\begin{lstlisting}[caption={Reference recurrence of the gated delta rule (\texttt{layers/deltanet.py}).}]
+for t in range(T):
+    S = S * torch.exp(g[:, :, t])[..., None, None]          # decay: alpha_t
+    v_old = torch.einsum("bhkv,bhk->bhv", S, k[:, :, t])    # what memory returns for k_t
+    S = S + torch.einsum("bhk,bhv->bhkv", k[:, :, t],
+                         beta[:, :, t, None] * (v[:, :, t] - v_old))  # erase + write
+    outs.append(torch.einsum("bhkv,bhk->bhv", S, q[:, :, t]))
+\end{lstlisting}
+\todo{Explain line by line.}
+
+\begin{lstlisting}[caption={Negative-eigenvalue option in the SSM (\texttt{layers/ssm.py}).}]
+dt = F.softplus(dt_raw + self.dt_bias)
+a = torch.exp(-dt * torch.exp(self.A_log))    # a in (0, 1)
+if self.neg_eigen:
+    a = 2.0 * a - 1.0                         # a in (-1, 1): the state can flip sign
+\end{lstlisting}
+
+\todo{Snippet + explanation of the Triton kernel inner loop, and of the MQAR generator.}

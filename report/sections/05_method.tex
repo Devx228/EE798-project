@@ -1,0 +1,28 @@
+\section{Algorithm and Methodology}
+\label{sec:method}
+% Guideline 2.6: inputs/outputs, preprocessing, features, architecture, training, inference, hyperparameters.
+
+\paragraph{Model.} Token embedding $\rightarrow$ $n$ pre-norm residual blocks (RMSNorm, mixer,
+optional SwiGLU MLP) $\rightarrow$ RMSNorm $\rightarrow$ tied output head. The mixer of each layer is set by
+a pattern string (\texttt{A}/\texttt{M}/\texttt{D}), e.g.\ \texttt{MAMM}.
+
+\begin{algorithm}[h]
+\caption{Chunkwise selective scan (training)}
+\begin{algorithmic}[1]
+\Require $x\in\R^{T\times H\times P}$, $a\in\R^{T\times H}$, $B,C\in\R^{T\times N}$, chunk length $L$
+\State Pad $T$ to a multiple of $L$ with $a=1$, $x=B=C=0$
+\For{each chunk $c$ (in parallel)}
+  \State $\ell_i \gets \sum_{k\le i}\log|a_k|$, \ $s_i \gets \prod_{k\le i}\operatorname{sgn}(a_k)$
+  \State $Y^{\text{diag}}_c \gets \big((C B^\top)\odot \mathcal{L}\big)\, x$ \Comment{$\mathcal{L}_{ij}=s_is_je^{\ell_i-\ell_j}[j\le i]$}
+  \State $\Sigma_c \gets \sum_j s_Ls_j e^{\ell_L-\ell_j} x_j B_j^\top$
+\EndFor
+\For{$c = 1,\dots,T/L$ (sequential)} \State $h_c \gets h_{c-1}$ decayed over chunk $c-1$ $+\ \Sigma_{c-1}$ \EndFor
+\State $Y \gets Y^{\text{diag}} + \big(s_i e^{\ell_i}\big) \cdot C\,h_c$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Training.} \todo{AdamW, warmup + cosine, gradient clipping, bf16 autocast, infinite freshly
+sampled data, early stopping at 99.5\% (MQAR), learning-rate grid per architecture.}
+
+\paragraph{Inference.} \todo{Parallel forward for evaluation; recurrent \texttt{step()} for decoding
+with constant state (SSM, DeltaNet) vs.\ KV cache (attention).}

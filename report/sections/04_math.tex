@@ -1,0 +1,83 @@
+\section{Mathematical Formulation}
+\label{sec:math}
+% Guideline 2.5 (mandatory): define every symbol; derive, don't copy.
+% The equations below match the code exactly; rewrite the surrounding explanation in your own words.
+
+\subsection{Task as a sequence-labelling problem}
+A model $f_\theta$ maps a token sequence $x_{1:T}$ to per-position distributions over a vocabulary
+$\mathcal{V}$. With a mask $m_t\in\{0,1\}$ marking scored positions, training minimises
+\begin{equation}
+  \mathcal{L}(\theta) = -\frac{1}{\sum_{n,t} m^{(n)}_t}\sum_{n=1}^{N}\sum_{t=1}^{T} m^{(n)}_t
+  \log p_\theta\!\left(y^{(n)}_t \mid x^{(n)}_{1:t}\right).
+\end{equation}
+\todo{Explain $N$, $y_t$, the causal conditioning, and why only masked positions count.}
+
+\subsection{Causal softmax attention}
+\begin{equation}
+  o_t = \sum_{j\le t} \frac{\exp(q_t^\top k_j/\sqrt{d})}{\sum_{i\le t}\exp(q_t^\top k_i/\sqrt{d})}\, v_j .
+\end{equation}
+\todo{Cost $O(T^2 d)$ for training; decoding reads a KV cache of $2Td$ numbers per layer and head.}
+
+\subsection{Selective state-space model}
+Continuous-time system $\dot h(\tau) = A h(\tau) + B x(\tau)$, $y = C h$. Zero-order-hold
+discretisation with an input-dependent step $\Delta_t$ and scalar $A=-e^{\alpha}<0$ per head gives
+\begin{align}
+  a_t &= \exp(\Delta_t A) \in (0,1), \qquad \Delta_t = \operatorname{softplus}(w^\top u_t + b),\\
+  h_t &= a_t\, h_{t-1} + (\Delta_t x_t)\, B_t^\top, \qquad h_t \in \R^{P\times N},\\
+  y_t &= h_t C_t + D x_t .
+\end{align}
+\todo{Define $P$ (head channels), $N$ (state size), $B_t, C_t\in\R^N$. Explain the Euler-style
+approximation of the input term used by Mamba-2 and what Mamba-3's trapezoidal rule changes.}
+
+\paragraph{Unrolled (dual) form.} Unrolling the recurrence,
+\begin{equation}
+  y_t = \sum_{j\le t} \underbrace{\Big(\prod_{k=j+1}^{t} a_k\Big)}_{\text{decay mask } L_{tj}}
+        (C_t^\top B_j)\, \Delta_j x_j ,
+\end{equation}
+i.e.\ causal attention with scores $C_t^\top B_j$ and a multiplicative decay mask \citep{dao2024ssd}.
+\todo{Derive this by induction.}
+
+\paragraph{Chunkwise algorithm.} \todo{Split $T$ into chunks of length $L$. Within a chunk use the dual
+form ($O(L^2)$); across chunks carry $h$ with one recurrence step per chunk. Total cost
+$O(T L N P)$; show the three terms (intra-chunk output, chunk state, inter-chunk contribution) and how
+negative $a_k$ are handled via $\log|a_k|$ and a sign product.}
+
+\paragraph{Negative eigenvalues.} With $a_t\mapsto 2a_t-1\in(-1,1)$ the state can flip sign.
+\todo{Prove: a 1-D state with $a_t=-1$ on input 1 and $a_t=1$ on input 0 computes parity; with
+$a_t\in(0,1)$ the sign of $h_t$ can never alternate (sketch of \citet{grazzi2025unlocking}).}
+
+\subsection{Gated delta rule}
+With $\alpha_t\in(0,1]$, $\beta_t\in(0,1)$ (or $(0,2)$) and $\lVert k_t\rVert=1$,
+\begin{align}
+  S_t &= \alpha_t\,(I - \beta_t k_t k_t^\top)\, S_{t-1} + \beta_t\, k_t v_t^\top, \qquad S_t\in\R^{d_k\times d_v},\\
+  o_t &= S_t^\top q_t .
+\end{align}
+\todo{Show this is one SGD step (learning rate $\beta_t$) on $\tfrac12\lVert S^\top k_t - v_t\rVert^2$
+after decaying by $\alpha_t$. Eigenvalues of $I-\beta_t k_t k_t^\top$: $1-\beta_t$ along $k_t$ and 1
+elsewhere.}
+
+\paragraph{Chunkwise (UT-transform) form.} Let $\gamma_i=\sum_{k\le i}\log\alpha_k$ inside a chunk and
+$\Gamma_i = e^{\gamma_i}$. The vectors actually written, $u_i=\beta_i(v_i-\alpha_i S_{i-1}^\top k_i)$,
+solve the unit lower-triangular system
+\begin{equation}
+  (I+M)\,U = \operatorname{diag}(\beta)\,V - \operatorname{diag}(\beta\odot\Gamma)\,K S_0, \qquad
+  M_{ij} = \beta_i\, e^{\gamma_i-\gamma_j}\, k_i^\top k_j \ (j<i),
+\end{equation}
+after which $O = (Q\odot\Gamma)S_0 + (QK^\top\odot \mathcal{D})\,U$ with decay mask
+$\mathcal{D}_{ij}=e^{\gamma_i-\gamma_j}\mathbb{1}[j\le i]$. \todo{Derive; complexity.}
+
+\subsection{State-tracking as group products}
+\todo{Define the word problem: $y_t = g_1 g_2\cdots g_t$ for $g_i$ in a finite group $G$. Parity:
+$G=\mathbb{Z}_2$; $\mathbb{Z}_m$ needs rotations; $S_3$ is non-abelian. Relate to which transition
+matrices can represent $G$.}
+
+\subsection{Complexity summary}
+\begin{table}[h]\centering
+\begin{tabular}{lccc}\toprule
+Mixer & Training time & Decode time / token & Decode memory \\\midrule
+Attention & $O(T^2 d)$ & $O(T d)$ & $O(T d)$ \\
+Selective SSM (chunked) & $O(T L N P)$ & $O(NP)$ & $O(NP)$ \\
+Gated DeltaNet (chunked) & $O(T (L d + d^2))$ & $O(d^2)$ & $O(d^2)$ \\\bottomrule
+\end{tabular}
+\caption{Per-layer, per-head cost. $L$ = chunk length. \todo{check and explain}}
+\end{table}

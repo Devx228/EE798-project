@@ -1,0 +1,15 @@
+# RQ2: which transitions can track state? Positive-only eigenvalues vs the negative-eigenvalue fix,
+# diagonal (SSM) vs non-diagonal (DeltaNet), on abelian (Z2, Z3) and non-abelian (S3) groups.
+name: state_tracking
+base: ../parity.yaml
+axes:
+  model:
+    - {label: attention,    set: {model.pattern: A}}
+    - {label: ssm,          set: {model.pattern: M, model.neg_eigen: false}}
+    - {label: ssm_neg,      set: {model.pattern: M, model.neg_eigen: true}}
+    - {label: deltanet,     set: {model.pattern: D, model.neg_eigen: false}}
+    - {label: deltanet_neg, set: {model.pattern: D, model.neg_eigen: true}}
+  group:
+    - {label: Z2, set: {task.group: Z2}}
+    - {label: Z3, set: {task.group: Z3}}
+    - {label: S3, set: {task.group: S3}}

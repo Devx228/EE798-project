@@ -1,0 +1,24 @@
+\section{Dataset and Experimental Setup}
+\label{sec:setup}
+% Guideline 2.8: data, sizes, splits, preprocessing, protocol, hardware/software, hyperparameters, baselines.
+
+\paragraph{Tasks (synthetic, generated on the fly).}
+\begin{itemize}
+  \item \textbf{MQAR} \citep{arora2024zoology}: $n$ key--value pairs then $n$ queries; vocabulary 4096;
+        $T\in\{256,512\}$, $n\in\{8,16,32,64\}$.
+  \item \textbf{Selective copying} \citep{gu2023mamba}: 16 tokens among noise; train $T=256$, test $T=1024$.
+  \item \textbf{Group words}: prefix products in $\mathbb{Z}_2$, $\mathbb{Z}_3$, $S_3$; train $T=64$,
+        test $T\in\{256,512\}$.
+\end{itemize}
+Training data are sampled fresh every step (no fixed training set); evaluation uses fixed held-out
+sets of 1024 sequences drawn with a different seed. \todo{number of training sequences seen = steps
+$\times$ batch size.}
+
+\paragraph{Models and baselines.} \todo{Table: pattern, $d_{\text{model}}$, layers, parameters,
+state size. Baselines: Transformer (attention only); comparisons: SSM, Gated DeltaNet, hybrids.}
+
+\paragraph{Hardware and software.} NVIDIA RTX 4050 Laptop GPU (6\,GB, Ada), \todo{CPU, RAM, OS / WSL2,
+driver, CUDA, PyTorch, Triton versions}.
+
+\paragraph{Hyperparameters.} \todo{Table from configs/: steps, batch size, learning rates, warmup,
+weight decay, clipping, precision, seeds.}

@@ -1,0 +1,25 @@
+# RQ1: how does recall accuracy scale with the number of facts to remember, per architecture and width?
+# Expectation (Zoology / "Repeat after me"): attention stays near 100%; SSM accuracy drops once
+# num_kv_pairs outgrows its state; Gated DeltaNet sits in between; one attention layer rescues it.
+name: recall_capacity
+base: ../mqar.yaml
+overrides: {task.seq_len: 512, train.steps: 4000}
+axes:
+  model:
+    - {label: attention, set: {model.pattern: A}}
+    - {label: ssm,       set: {model.pattern: M}}
+    - {label: ssm_N64,   set: {model.pattern: M, model.ssm: {d_state: 64, expand: 2, head_dim: 32}}}
+    - {label: deltanet,  set: {model.pattern: D}}
+    - {label: hybrid_MA, set: {model.pattern: MA}}
+  kv:
+    - {label: kv8,  set: {task.num_kv_pairs: 8}}
+    - {label: kv16, set: {task.num_kv_pairs: 16}}
+    - {label: kv32, set: {task.num_kv_pairs: 32}}
+    - {label: kv64, set: {task.num_kv_pairs: 64}}
+  width:
+    - {label: d64,  set: {model.d_model: 64}}
+    - {label: d128, set: {model.d_model: 128}}
+    - {label: d256, set: {model.d_model: 256}}
+  lr:   # every architecture gets its best learning rate (recall results are LR-sensitive)
+    - {label: lr1e-3, set: {train.lr: 0.001}}
+    - {label: lr3e-3, set: {train.lr: 0.003}}

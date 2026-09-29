@@ -1,0 +1,16 @@
+# Tiny run (about a minute on CPU, seconds on GPU) to check the install works.
+# Expected: the SSM reaches roughly 50-60% recall accuracy (chance is under 1%).
+inherit: mqar.yaml
+task:
+  seq_len: 64
+  num_kv_pairs: 4
+  vocab_size: 128
+model:
+  d_model: 64
+train:
+  steps: 1500
+  batch_size: 32
+  lr: 3.0e-3
+  eval_every: 500
+  eval_samples: 256
+out_dir: runs/smoke

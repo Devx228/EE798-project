@@ -1,0 +1,5 @@
+# Non-abelian state tracking: running composition of permutations in S_3.
+inherit: parity.yaml
+task:
+  group: S3
+out_dir: runs/group_s3

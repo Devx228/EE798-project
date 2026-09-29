@@ -1,0 +1,37 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage{graphicx,booktabs,multirow,xcolor}
+\usepackage{algorithm,algpseudocode}
+\usepackage{listings}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{cleveref}
+
+\lstset{basicstyle=\ttfamily\small,keywordstyle=\color{blue!60!black}\bfseries,commentstyle=\color{gray},
+  language=Python,frame=single,breaklines=true,columns=fullflexible,captionpos=b}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\R}{\mathbb{R}}
+
+\title{Fading Memory: Where State-Space Models Fail on Recall and State Tracking,\\ and What Fixes Them}
+\author{\todo{Name} \quad \todo{Roll number}\\ EE798R Pattern Recognition --- Course Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+\input{sections/00_abstract}
+\input{sections/01_introduction}
+\input{sections/02_background}
+\input{sections/03_theory}
+\input{sections/04_math}
+\input{sections/05_method}
+\input{sections/06_implementation}
+\input{sections/07_setup}
+\input{sections/08_quantitative}
+\input{sections/09_qualitative}
+\input{sections/10_discussion}
+\input{sections/11_conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+\end{document}

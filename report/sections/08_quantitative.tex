@@ -1,0 +1,21 @@
+\section{Quantitative Results}
+\label{sec:quant}
+% Guideline 2.9: at least one clearly formatted table + interpretation.
+
+\begin{table}[h]\centering
+\begin{tabular}{lcccc}\toprule
+Model & $\mathbb{Z}_2$ @64 & $\mathbb{Z}_2$ @512 & $\mathbb{Z}_3$ @512 & $S_3$ @512 \\\midrule
+Transformer & -- & -- & -- & -- \\
+SSM, $a\in(0,1)$ & -- & -- & -- & -- \\
+SSM, $a\in(-1,1)$ & -- & -- & -- & -- \\
+Gated DeltaNet, $\beta\in(0,1)$ & -- & -- & -- & -- \\
+Gated DeltaNet, $\beta\in(0,2)$ & -- & -- & -- & -- \\\bottomrule
+\end{tabular}
+\caption{RQ2: state-tracking accuracy (trained at length 64). \todo{fill from results/state\_tracking/summary.csv}}
+\label{tab:state}
+\end{table}
+
+\todo{Table: RQ1 MQAR accuracy vs.\ number of pairs (with state size column).}
+\todo{Table: RQ3 hybrid placement.}
+\todo{Table: RQ4 latency / memory / decode throughput on the RTX 4050.}
+\todo{Interpret every table in prose.}

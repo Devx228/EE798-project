@@ -1,0 +1,16 @@
+# RQ3: in a 4-layer SSM, how many attention layers are needed and where should they go?
+name: hybrid_placement
+base: ../mqar.yaml
+overrides: {task.seq_len: 512, task.num_kv_pairs: 64, model.n_layers: 4, train.steps: 4000}
+axes:
+  pattern:
+    - {label: MMMM, set: {model.pattern: MMMM}}
+    - {label: AMMM, set: {model.pattern: AMMM}}
+    - {label: MAMM, set: {model.pattern: MAMM}}
+    - {label: MMAM, set: {model.pattern: MMAM}}
+    - {label: MMMA, set: {model.pattern: MMMA}}
+    - {label: MAMA, set: {model.pattern: MAMA}}
+    - {label: AAAA, set: {model.pattern: AAAA}}
+  lr:   # every architecture gets its best learning rate (recall results are LR-sensitive)
+    - {label: lr1e-3, set: {train.lr: 0.001}}
+    - {label: lr3e-3, set: {train.lr: 0.003}}
