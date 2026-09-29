@@ -16,6 +16,17 @@ Two mathematically identical scan implementations are provided:
   "attention-like" work inside each chunk plus a short recurrence across chunks.
 
 A forward-only Triton kernel lives in ``triton_scan.py``.
+
+Rotational variant (``rotary=True``, in the spirit of Mamba-3's complex-valued states): the
+``N`` state dimensions are grouped into ``N/2`` pairs, each read as one complex number, and the
+transition becomes ``a_t * R(theta_t)`` -- a decay *and* an input-dependent rotation by
+``theta_t``. A rotation by 2*pi/m is exactly what counting mod m needs, which no real diagonal
+transition (positive or negative) can express. Because rotations commute, the rotating state can
+be absorbed into B and C (a data-dependent RoPE, as noted in the Mamba-3 paper):
+
+    B~_t = R(-Phi_t) B_t,  C~_t = R(-Phi_t) C_t,  Phi_t = sum_{k<=t} theta_k
+
+after which the ordinary real scan above is reused unchanged.
 """
 
 from __future__ import annotations
@@ -110,6 +121,38 @@ def ssd_scan_chunked(x, a, B, C, chunk_size: int = 64, initial_state=None):
     return y, h
 
 
+def rotate_pairs(x, angle):
+    """Rotate consecutive pairs ``(x[2j], x[2j+1])`` of the last dim by ``angle[..., j]``."""
+    x1, x2 = x[..., 0::2], x[..., 1::2]
+    c, s = torch.cos(angle), torch.sin(angle)
+    return torch.stack([x1 * c - x2 * s, x1 * s + x2 * c], dim=-1).flatten(-2)
+
+
+def rotational_scan_recurrent(x, a, theta, B, C, initial_state=None):
+    """Reference for the rotational SSM with an explicitly rotating state.
+
+    ``h_t = a_t * R(theta_t) h_{t-1} + x_t B_t^T``, ``y_t = h_t C_t``, where ``R`` rotates each pair
+    of state dimensions. theta: ``[b, T, N/2]``; the other arguments as in :func:`ssd_scan_recurrent`.
+    """
+    b, T, H, P = x.shape
+    N = B.shape[-1]
+    h = x.new_zeros(b, H, P, N) if initial_state is None else initial_state
+    ys = []
+    for t in range(T):
+        h = a[:, t, :, None, None] * rotate_pairs(h, theta[:, t, None, None, :])
+        h = h + x[:, t, :, :, None] * B[:, t, None, None, :]
+        ys.append(torch.einsum("bhpn,bn->bhp", h, C[:, t]))
+    return torch.stack(ys, dim=1), h
+
+
+def rotational_scan(x, a, theta, B, C, chunk_size: int = 64):
+    """Same outputs as :func:`rotational_scan_recurrent`, computed by rotating B and C by the
+    cumulative angle and running the real chunked scan. The returned state lives in the rotated
+    frame, i.e. it equals ``R(-Phi_T) h_T``."""
+    phase = theta.cumsum(dim=1)
+    return ssd_scan_chunked(x, a, rotate_pairs(B, -phase), rotate_pairs(C, -phase), chunk_size)
+
+
 class SelectiveSSM(nn.Module):
     """Mamba-2 style mixer: in_proj -> short conv -> selective scan -> gated RMSNorm -> out_proj."""
 
@@ -121,6 +164,7 @@ class SelectiveSSM(nn.Module):
         head_dim: int = 32,
         d_conv: int = 4,
         neg_eigen: bool = False,
+        rotary: bool = False,
         chunk_size: int = 64,
         dt_min: float = 1e-3,
         dt_max: float = 1e-1,
@@ -132,9 +176,13 @@ class SelectiveSSM(nn.Module):
         self.d_inner, self.d_state, self.head_dim = d_inner, d_state, head_dim
         self.n_heads = d_inner // head_dim
         self.neg_eigen, self.chunk_size, self.backend = neg_eigen, chunk_size, backend
+        self.rotary = rotary
+        if rotary:
+            assert d_state % 2 == 0, "rotary SSM pairs state dimensions: d_state must be even"
+        self.n_angles = d_state // 2 if rotary else 0
 
-        # z (gate) | x | B | C | dt
-        self.in_proj = nn.Linear(d_model, 2 * d_inner + 2 * d_state + self.n_heads, bias=False)
+        # z (gate) | x | B | C | dt | theta (rotary only)
+        self.in_proj = nn.Linear(d_model, 2 * d_inner + 2 * d_state + self.n_heads + self.n_angles, bias=False)
         self.conv = ShortConv(d_inner + 2 * d_state, d_conv)
 
         # A in [1, 16] as in Mamba-2; dt initialised log-uniformly in [dt_min, dt_max].
@@ -146,7 +194,13 @@ class SelectiveSSM(nn.Module):
         self.out_proj = nn.Linear(d_inner, d_model, bias=False)
 
     def _split(self, zxbcdt):
-        return torch.split(zxbcdt, [self.d_inner, self.d_inner + 2 * self.d_state, self.n_heads], dim=-1)
+        z, xBC, dt_raw, theta_raw = torch.split(
+            zxbcdt, [self.d_inner, self.d_inner + 2 * self.d_state, self.n_heads, self.n_angles], dim=-1)
+        return z, xBC, dt_raw, theta_raw
+
+    @staticmethod
+    def _angles(theta_raw):
+        return math.pi * torch.tanh(theta_raw)  # one rotation angle in (-pi, pi) per state pair
 
     def _discretize(self, dt_raw):
         dt = F.softplus(dt_raw + self.dt_bias)  # [..., H]
@@ -157,7 +211,7 @@ class SelectiveSSM(nn.Module):
 
     def forward(self, u: torch.Tensor, return_state: bool = False):
         b, T, _ = u.shape
-        z, xBC, dt_raw = self._split(self.in_proj(u))
+        z, xBC, dt_raw, theta_raw = self._split(self.in_proj(u))
         xBC = F.silu(self.conv(xBC))
         x, B, C = torch.split(xBC, [self.d_inner, self.d_state, self.d_state], dim=-1)
         sd = scan_dtype(u.dtype)
@@ -165,7 +219,13 @@ class SelectiveSSM(nn.Module):
         x = x.view(b, T, self.n_heads, self.head_dim)
 
         xs, Bf, Cf = (x * dt.unsqueeze(-1)).to(sd), B.to(sd), C.to(sd)
-        if self.backend == "recurrent":
+        if self.rotary:
+            theta = self._angles(theta_raw.to(sd))
+            if self.backend == "recurrent":
+                y, state = rotational_scan_recurrent(xs, a, theta, Bf, Cf)
+            else:
+                y, state = rotational_scan(xs, a, theta, Bf, Cf, self.chunk_size)
+        elif self.backend == "recurrent":
             y, state = ssd_scan_recurrent(xs, a, Bf, Cf)
         elif self.backend == "triton" and not (torch.is_grad_enabled() and u.requires_grad):
             from .triton_scan import ssd_scan_triton
@@ -181,18 +241,24 @@ class SelectiveSSM(nn.Module):
 
     # ---- token-by-token decoding -------------------------------------------------------------
     def init_cache(self, batch: int, device, dtype):
+        sd = scan_dtype(dtype)
         return {
             "conv": self.conv.init_state(batch, device, dtype),
-            "ssm": torch.zeros(batch, self.n_heads, self.head_dim, self.d_state, device=device, dtype=scan_dtype(dtype)),
+            "ssm": torch.zeros(batch, self.n_heads, self.head_dim, self.d_state, device=device, dtype=sd),
+            "phase": torch.zeros(batch, self.n_angles, device=device, dtype=sd),
         }
 
     def step(self, u_t: torch.Tensor, cache: dict) -> torch.Tensor:
         """u_t: ``[b, d_model]``. Constant memory and compute per token, independent of context length."""
-        z, xBC, dt_raw = self._split(self.in_proj(u_t))
+        z, xBC, dt_raw, theta_raw = self._split(self.in_proj(u_t))
         xBC, cache["conv"] = self.conv.step(xBC, cache["conv"])
         xBC = F.silu(xBC)
         x, B, C = torch.split(xBC, [self.d_inner, self.d_state, self.d_state], dim=-1)
         h = cache["ssm"]
+        if self.rotary:  # same rotated frame as the parallel forward
+            cache["phase"] = cache["phase"] + self._angles(theta_raw.to(h.dtype))
+            B = rotate_pairs(B.to(h.dtype), -cache["phase"])
+            C = rotate_pairs(C.to(h.dtype), -cache["phase"])
         dt, a = self._discretize(dt_raw.to(h.dtype))
         x = x.view(-1, self.n_heads, self.head_dim)
         h = a[:, :, None, None] * h + (x * dt[..., None]).to(h.dtype)[..., None] * B.to(h.dtype)[:, None, None, :]

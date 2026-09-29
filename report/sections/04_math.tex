@@ -66,6 +66,35 @@ solve the unit lower-triangular system
 after which $O = (Q\odot\Gamma)S_0 + (QK^\top\odot \mathcal{D})\,U$ with decay mask
 $\mathcal{D}_{ij}=e^{\gamma_i-\gamma_j}\mathbb{1}[j\le i]$. \todo{Derive; complexity.}
 
+\subsection{Beyond negative eigenvalues: rotations and products of reflections}
+\label{sec:math-ext}
+\paragraph{Rotational SSM (Mamba-3 style).} Group the $N$ state dimensions into $N/2$ pairs and read
+each pair as a complex number. The transition becomes a decay \emph{and} an input-dependent rotation,
+\begin{equation}
+  h_t = a_t\, R(\theta_t)\, h_{t-1} + (\Delta_t x_t) B_t^\top, \qquad
+  R(\theta) = \operatorname{diag}\!\Big(\begin{bmatrix}\cos\theta_j & -\sin\theta_j\\ \sin\theta_j & \cos\theta_j\end{bmatrix}\Big)_{j=1}^{N/2},
+\end{equation}
+with $\theta_t = \pi\tanh(W_\theta u_t)\in(-\pi,\pi)^{N/2}$. Since rotations of the same plane commute,
+with $\Phi_t=\sum_{k\le t}\theta_k$ the substitution $\tilde h_t = h_t R(-\Phi_t)^\top$ gives
+\begin{equation}
+  \tilde h_t = a_t \tilde h_{t-1} + (\Delta_t x_t)\,\tilde B_t^\top,\quad y_t = \tilde h_t \tilde C_t,\qquad
+  \tilde B_t = R(-\Phi_t)B_t,\ \tilde C_t = R(-\Phi_t)C_t ,
+\end{equation}
+so the rotation can be moved onto $B$ and $C$ (a data-dependent RoPE) and the real chunked scan is
+reused unchanged. \todo{Derive the substitution. Explain why $\theta=2\pi/3$ implements
+$\mathbb{Z}_3$, and why $\theta=\pi$ recovers the negative eigenvalue $-1$.}
+
+\paragraph{DeltaProduct.} Each token applies $n_h$ delta-rule steps with separate keys, values and
+write strengths:
+\begin{equation}
+  S_t = \Big(\prod_{j=1}^{n_h} \big(I - \beta_{t,j} k_{t,j}k_{t,j}^\top\big)\Big)\alpha_t S_{t-1} + \text{(write terms)}.
+\end{equation}
+With $\beta_{t,j}=2$ each factor is a reflection $H_j$, and $H_2H_1$ is a rotation by twice the angle
+between $k_{t,1}$ and $k_{t,2}$ ($\det = +1$). Hence $n_h=2$ can express $\mathbb{Z}_m$ and the
+rotations in $S_3$, which one reflection per token cannot. \todo{Prove $\det(H_2H_1)=1$ and the angle
+doubling. Implementation: interleave the sub-steps into a sequence of length $n_h T$ (decay at the
+first sub-step, read-out after the last), reusing the chunked algorithm.}
+
 \subsection{State-tracking as group products}
 \todo{Define the word problem: $y_t = g_1 g_2\cdots g_t$ for $g_i$ in a finite group $G$. Parity:
 $G=\mathbb{Z}_2$; $\mathbb{Z}_m$ needs rotations; $S_3$ is non-abelian. Relate to which transition
@@ -77,7 +106,9 @@ matrices can represent $G$.}
 Mixer & Training time & Decode time / token & Decode memory \\\midrule
 Attention & $O(T^2 d)$ & $O(T d)$ & $O(T d)$ \\
 Selective SSM (chunked) & $O(T L N P)$ & $O(NP)$ & $O(NP)$ \\
-Gated DeltaNet (chunked) & $O(T (L d + d^2))$ & $O(d^2)$ & $O(d^2)$ \\\bottomrule
+Rotational SSM & $O(T L N P)$ & $O(NP)$ & $O(NP)$ \\
+Gated DeltaNet (chunked) & $O(T (L d + d^2))$ & $O(d^2)$ & $O(d^2)$ \\
+DeltaProduct$_{n_h}$ & $O(n_h T (L d + d^2))$ & $O(n_h d^2)$ & $O(d^2)$ \\\bottomrule
 \end{tabular}
 \caption{Per-layer, per-head cost. $L$ = chunk length. \todo{check and explain}}
 \end{table}

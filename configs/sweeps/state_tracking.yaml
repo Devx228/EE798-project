@@ -1,5 +1,7 @@
 # RQ2: which transitions can track state? Positive-only eigenvalues vs the negative-eigenvalue fix,
 # diagonal (SSM) vs non-diagonal (DeltaNet), on abelian (Z2, Z3) and non-abelian (S3) groups.
+# Extensions (RQ2b): rotations (Mamba-3-style complex SSM) and products of Householders (DeltaProduct).
+# Finished runs are skipped, so adding models here only trains the new ones.
 name: state_tracking
 base: ../parity.yaml
 axes:
@@ -9,6 +11,9 @@ axes:
     - {label: ssm_neg,      set: {model.pattern: M, model.neg_eigen: true}}
     - {label: deltanet,     set: {model.pattern: D, model.neg_eigen: false}}
     - {label: deltanet_neg, set: {model.pattern: D, model.neg_eigen: true}}
+    - {label: ssm_rot,           set: {model.pattern: M, model.ssm: {d_state: 16, expand: 2, head_dim: 32, rotary: true}}}
+    - {label: deltaproduct2,     set: {model.pattern: D, model.neg_eigen: false, model.deltanet: {n_heads: 4, gated: true, n_householder: 2}}}
+    - {label: deltaproduct2_neg, set: {model.pattern: D, model.neg_eigen: true,  model.deltanet: {n_heads: 4, gated: true, n_householder: 2}}}
   group:
     - {label: Z2, set: {task.group: Z2}}
     - {label: Z3, set: {task.group: Z3}}

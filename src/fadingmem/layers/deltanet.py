@@ -12,6 +12,17 @@ eigenvalue along ``k_t`` is ``1 - beta_t``; with ``neg_eigen=True`` we let ``bet
 (0, 2) so that eigenvalue can become negative (Grazzi et al., ICLR 2025).
 
 ``gated=False`` recovers plain DeltaNet (alpha_t = 1).
+
+DeltaProduct (Siems et al. 2025, ``n_householder = n_h > 1``): every token applies ``n_h``
+delta-rule steps with their own keys, values and betas,
+
+    S_t = alpha_t * prod_{j=1..n_h} (I - beta_{t,j} k_{t,j} k_{t,j}^T) S_{t-1} + (write terms),
+
+so the transition is a product of ``n_h`` generalised Householder matrices. With beta in (0, 2)
+one factor can be a reflection; two reflections compose to a rotation, which is what counting
+mod m and non-abelian groups like S_3 need. We implement it by *interleaving* the sub-steps into
+the time axis (length T * n_h) and reusing the verified chunked kernel: the decay is applied at
+the first sub-step of each token and the output is read after the last.
 """
 
 from __future__ import annotations
@@ -101,19 +112,21 @@ class GatedDeltaNet(nn.Module):
         d_conv: int = 4,
         gated: bool = True,
         neg_eigen: bool = False,
+        n_householder: int = 1,
         chunk_size: int = 64,
         backend: str = "chunked",
     ):
         super().__init__()
-        self.n_heads = n_heads
+        self.n_heads, self.n_h = n_heads, n_householder
         self.head_dim = head_dim or d_model // n_heads
         inner = self.n_heads * self.head_dim
         self.gated, self.neg_eigen = gated, neg_eigen
         self.chunk_size, self.backend = chunk_size, backend
 
-        self.qkv_proj = nn.Linear(d_model, 3 * inner, bias=False)
-        self.conv = ShortConv(3 * inner, d_conv)
-        self.beta_proj = nn.Linear(d_model, n_heads)
+        # q once per token; one (k, v) pair per Householder sub-step
+        self.qkv_proj = nn.Linear(d_model, (1 + 2 * n_householder) * inner, bias=False)
+        self.conv = ShortConv((1 + 2 * n_householder) * inner, d_conv)
+        self.beta_proj = nn.Linear(d_model, n_heads * n_householder)
         self.a_proj = nn.Linear(d_model, n_heads)  # data-dependent decay (Mamba-2 style)
         self.A_log = nn.Parameter(torch.log(torch.empty(n_heads).uniform_(1, 16)))
         self.dt_bias = nn.Parameter(torch.full((n_heads,), -4.0))
@@ -122,20 +135,22 @@ class GatedDeltaNet(nn.Module):
         self.out_proj = nn.Linear(inner, d_model, bias=False)
 
     def _gates(self, u):
+        """beta: ``[..., n_h, H]`` write strengths; g: ``[..., H]`` log-decay per token."""
         sd = scan_dtype(u.dtype)
-        beta = torch.sigmoid(self.beta_proj(u).to(sd))
+        beta = torch.sigmoid(self.beta_proj(u).to(sd)).unflatten(-1, (self.n_h, self.n_heads))
         if self.neg_eigen:
             beta = 2.0 * beta
         if self.gated:
             g = -torch.exp(self.A_log) * F.softplus(self.a_proj(u).to(sd) + self.dt_bias)
         else:
-            g = torch.zeros_like(beta)
+            g = beta.new_zeros(beta.shape[:-2] + (self.n_heads,))
         return beta, g
 
     def _qkv(self, qkv):
-        q, k, v = F.silu(qkv).chunk(3, dim=-1)
-        shape = q.shape[:-1] + (self.n_heads, self.head_dim)
-        q, k, v = (t.reshape(shape) for t in (q, k, v))
+        """q: ``[..., H, d]``; k, v: ``[..., n_h, H, d]``."""
+        q, kv = F.silu(qkv).split([self.n_heads * self.head_dim, 2 * self.n_h * self.n_heads * self.head_dim], dim=-1)
+        k, v = kv.unflatten(-1, (2, self.n_h, self.n_heads, self.head_dim)).unbind(-4)
+        q = q.unflatten(-1, (self.n_heads, self.head_dim))
         sd = scan_dtype(q.dtype)
         q = l2_normalize(q.to(sd)) * self.head_dim**-0.5
         return q, l2_normalize(k.to(sd)), v.to(sd)
@@ -145,15 +160,26 @@ class GatedDeltaNet(nn.Module):
         o = o.flatten(-2) * F.silu(self.out_gate(u))
         return self.out_proj(o)
 
+    def _interleave(self, q, k, v, beta, g):
+        """Flatten the n_h sub-steps into time: token t, sub-step j -> position t * n_h + j.
+        Returns tensors shaped ``[b, H, T * n_h, ...]`` for the delta-rule kernels."""
+        b, T, n_h, H, d = k.shape
+        q_x = q.new_zeros(b, T, n_h, H, d)
+        q_x[:, :, -1] = q  # read the memory only after the last sub-step
+        g_x = g.new_zeros(b, T, n_h, H)
+        g_x[:, :, 0] = g  # decay once per token
+        flat = lambda t: t.flatten(1, 2).transpose(1, 2)  # [b, T*n_h, H, ...] -> [b, H, T*n_h, ...]
+        return flat(q_x), flat(k), flat(v), flat(beta), flat(g_x)
+
     def forward(self, u: torch.Tensor, return_state: bool = False):
-        b, T, _ = u.shape
         q, k, v = self._qkv(self.conv(self.qkv_proj(u)))
-        q, k, v = (t.transpose(1, 2) for t in (q, k, v))  # [b, H, T, d]
-        beta, g = (t.transpose(1, 2) for t in self._gates(u))
+        beta, g = self._gates(u)
+        args = self._interleave(q, k, v, beta, g)
         if self.backend == "recurrent":
-            o, S = delta_rule_recurrent(q, k, v, beta, g)
+            o, S = delta_rule_recurrent(*args)
         else:
-            o, S = delta_rule_chunked(q, k, v, beta, g, self.chunk_size)
+            o, S = delta_rule_chunked(*args, chunk_size=self.chunk_size)
+        o = o[:, :, self.n_h - 1 :: self.n_h]  # outputs after each token's last sub-step
         out = self._finish(o.transpose(1, 2), u)
         return (out, S) if return_state else out
 
@@ -165,11 +191,12 @@ class GatedDeltaNet(nn.Module):
 
     def step(self, u_t: torch.Tensor, cache: dict) -> torch.Tensor:
         qkv, cache["conv"] = self.conv.step(self.qkv_proj(u_t), cache["conv"])
-        q, k, v = self._qkv(qkv)  # [b, H, d]
+        q, k, v = self._qkv(qkv)  # q: [b, H, d]; k, v: [b, n_h, H, d]
         beta, g = self._gates(u_t)
         S = cache["S"] * torch.exp(g)[..., None, None]
-        v_old = torch.einsum("bhkv,bhk->bhv", S, k)
-        S = S + torch.einsum("bhk,bhv->bhkv", k, beta[..., None] * (v - v_old))
+        for j in range(self.n_h):
+            v_old = torch.einsum("bhkv,bhk->bhv", S, k[:, j])
+            S = S + torch.einsum("bhk,bhv->bhkv", k[:, j], beta[:, j, :, None] * (v[:, j] - v_old))
         cache["S"] = S
         o = torch.einsum("bhkv,bhk->bhv", S, q)
         return self._finish(o, u_t)

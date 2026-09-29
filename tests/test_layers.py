@@ -6,13 +6,21 @@ import torch
 from fadingmem.model import ModelConfig, SequenceModel
 
 PATTERNS = ["A", "M", "D", "MA", "DA"]
+VARIANTS = {  # extra mixer options: Mamba-3-style rotation, DeltaProduct with 2 and 3 Householders
+    "plain": {},
+    "rotary": {"ssm": {"rotary": True}},
+    "product2": {"deltanet": {"n_householder": 2}},
+    "product3": {"deltanet": {"n_householder": 3, "gated": False}},
+}
 
 
-def small_model(pattern, neg_eigen=False, **kw):
+def small_model(pattern, neg_eigen=False, variant="plain", **kw):
+    extra = VARIANTS[variant]
     cfg = ModelConfig(
         vocab_size=50, d_model=32, n_layers=len(pattern), pattern=pattern, mlp_ratio=2, neg_eigen=neg_eigen,
-        attn={"n_heads": 2}, ssm={"d_state": 8, "expand": 2, "head_dim": 16, "chunk_size": 8},
-        deltanet={"n_heads": 2, "chunk_size": 8}, **kw,
+        attn={"n_heads": 2},
+        ssm={"d_state": 8, "expand": 2, "head_dim": 16, "chunk_size": 8, **extra.get("ssm", {})},
+        deltanet={"n_heads": 2, "chunk_size": 8, **extra.get("deltanet", {})}, **kw,
     )
     return SequenceModel(cfg).double()
 
@@ -42,9 +50,23 @@ def test_step_matches_forward(pattern, neg_eigen):
     torch.testing.assert_close(full, steps, atol=1e-8, rtol=1e-6)
 
 
-def test_recurrent_backend_matches_chunked():
+@pytest.mark.parametrize("variant,pattern", [("rotary", "M"), ("rotary", "MA"), ("product2", "D"), ("product3", "D")])
+@pytest.mark.parametrize("neg_eigen", [False, True])
+def test_variant_step_matches_forward(variant, pattern, neg_eigen):
+    torch.manual_seed(3)
+    model = small_model(pattern, neg_eigen, variant).eval()
+    x = torch.randint(0, 50, (2, 19))
+    with torch.no_grad():
+        full = model(x)
+        caches = model.init_cache(2, "cpu", torch.float64, max_len=32)
+        steps = torch.stack([model.step(x[:, t], caches) for t in range(x.shape[1])], dim=1)
+    torch.testing.assert_close(full, steps, atol=1e-8, rtol=1e-6)
+
+
+@pytest.mark.parametrize("variant", ["plain", "rotary", "product2"])
+def test_recurrent_backend_matches_chunked(variant):
     torch.manual_seed(2)
-    model = small_model("MD").eval()
+    model = small_model("MD", variant=variant).eval()
     x = torch.randint(0, 50, (2, 30))
     with torch.no_grad():
         chunked = model(x)
