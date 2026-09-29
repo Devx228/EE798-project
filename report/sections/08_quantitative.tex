@@ -2,18 +2,21 @@
 \label{sec:quant}
 % Guideline 2.9: at least one clearly formatted table + interpretation.
 
-\begin{table}[h]\centering
-\begin{tabular}{lcccc}\toprule
-Model & $\mathbb{Z}_2$ @64 & $\mathbb{Z}_2$ @512 & $\mathbb{Z}_3$ @512 & $S_3$ @512 \\\midrule
-Transformer & -- & -- & -- & -- \\
-SSM, $a\in(0,1)$ & -- & -- & -- & -- \\
-SSM, $a\in(-1,1)$ & -- & -- & -- & -- \\
-Gated DeltaNet, $\beta\in(0,1)$ & -- & -- & -- & -- \\
-Gated DeltaNet, $\beta\in(0,2)$ & -- & -- & -- & -- \\\bottomrule
-\end{tabular}
-\caption{RQ2: state-tracking accuracy (trained at length 64). \todo{fill from results/state\_tracking/summary.csv}}
+\begin{table}[h]\centering\small
+\input{tables/state_tracking}
+\caption{RQ2: token accuracy on group-word state tracking. Models are trained on length 64 and tested
+on 64, 256 and 512 (4$\times$ and 8$\times$ longer). Bold: best in column (within 0.005).
+Chance is 0.5 / 0.333 / 0.167. One seed; \todo{rerun with seeds 0--2}.}
 \label{tab:state}
 \end{table}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{figures/state_tracking}
+\caption{Length generalisation on state tracking. Colour = architecture family, line style =
+eigenvalue range (dashed/square: positive only; solid/circle: extended to negative). Only models whose
+transitions can represent the group keep their accuracy beyond the training length (shaded).}
+\label{fig:state}
+\end{figure}
 
 \todo{Table: RQ1 MQAR accuracy vs.\ number of pairs (with state size column).}
 \todo{Table: RQ3 hybrid placement.}

@@ -33,14 +33,23 @@ Every chunked (parallel) algorithm is unit-tested against its step-by-step recur
 precision, and every model's token-by-token decoding is tested against its parallel forward pass
 (`pytest`, 43 tests).
 
-## First results (CPU preview, not final)
+## First results
 
-Parity (Z2), 2-layer SSM, d_model = 64, 1500 steps, trained on length 64:
+**RQ2, state tracking** (RTX 4050, one seed, 2 layers, trained on length 64). Full table:
+`report/tables/state_tracking.tex`.
 
-| Model | acc @ 64 | acc @ 256 | acc @ 512 |
+![state tracking](report/figures/state_tracking.png)
+
+| Test length 512 | Z2 (parity) | Z3 | S3 |
 |---|---|---|---|
-| SSM, decay in (0, 1) | 0.689 | 0.549 | 0.527 (chance = 0.5) |
-| SSM, decay in (-1, 1) | **1.000** | **1.000** | **0.999** |
+| Transformer | 0.534 | 0.422 | 0.189 |
+| SSM, a in (0,1) | 0.542 | 0.376 | 0.195 |
+| SSM, a in (-1,1) | **0.998** | 0.356 | 0.230 |
+| Gated DeltaNet, beta in (0,1) | 0.590 | 0.491 | 0.208 |
+| Gated DeltaNet, beta in (0,2) | **0.991** | 0.486 | 0.509 |
+
+Only negative eigenvalues make parity length-generalise. Nothing tested so far generalises on Z3
+(a rotation), and only DeltaNet with beta in (0,2) fits S3 at the training length (0.999).
 
 Smoke-test note for RQ1: on MQAR, a 2-layer attention model with one 64-dimensional head reaches
 about 91% in 3k steps, while the same model with 2 or 4 narrower heads stalls near 53%. Recall
@@ -95,7 +104,8 @@ docs/               setup notes
 - [x] Mixers from scratch (SSM, Gated DeltaNet, attention) with verified parallel forms
 - [x] Synthetic tasks, training loop, sweeps, benchmark harness
 - [x] Triton forward scan kernel (interpreter-tested)
-- [ ] Run sweeps on the RTX 4050, plotting script, qualitative figures (state heatmaps, attention maps)
+- [x] State-tracking sweep on the RTX 4050, plotting script (`scripts/plot_results.py`)
+- [ ] Remaining sweeps, qualitative figures (state heatmaps, attention maps)
 - [ ] Triton backward kernel, then compare with the chunked PyTorch path during training
 - [ ] Stretch: complex / rotational transitions (Mamba-3 style) for Z_m, small TinyStories language model
 - [ ] Write the report

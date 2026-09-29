@@ -1,0 +1,13 @@
+\begin{tabular}{lccccccccc}
+\toprule
+ & \multicolumn{3}{c}{$\mathbb{Z}_2$ (parity)} & \multicolumn{3}{c}{$\mathbb{Z}_3$ (count mod 3)} & \multicolumn{3}{c}{$S_3$ (permutations)} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7} \cmidrule(lr){8-10}
+Model & 64 & 256 & 512 & 64 & 256 & 512 & 64 & 256 & 512 \\
+\midrule
+Transformer & 0.773 & 0.568 & 0.534 & 0.988 & 0.509 & 0.422 & 0.345 & 0.213 & 0.189 \\
+SSM, $a\in(0,1)$ & 0.829 & 0.581 & 0.542 & 0.673 & 0.418 & 0.376 & 0.384 & 0.221 & 0.195 \\
+SSM, $a\in(-1,1)$ & \textbf{1.000} & \textbf{1.000} & \textbf{0.998} & 0.517 & 0.381 & 0.356 & 0.418 & 0.293 & 0.230 \\
+Gated DeltaNet, $\beta\in(0,1)$ & \textbf{0.998} & 0.682 & 0.590 & \textbf{0.998} & \textbf{0.656} & \textbf{0.491} & 0.451 & 0.249 & 0.208 \\
+Gated DeltaNet, $\beta\in(0,2)$ & \textbf{1.000} & \textbf{1.000} & 0.991 & \textbf{0.997} & 0.640 & \textbf{0.486} & \textbf{0.999} & \textbf{0.785} & \textbf{0.509} \\
+\bottomrule
+\end{tabular}
