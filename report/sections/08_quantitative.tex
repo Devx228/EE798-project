@@ -2,11 +2,11 @@
 \label{sec:quant}
 % Guideline 2.9: at least one clearly formatted table + interpretation.
 
-\begin{table}[h]\centering\small
-\input{tables/state_tracking}
+\begin{table}[h]\centering
+\resizebox{\linewidth}{!}{\input{tables/state_tracking}}
 \caption{RQ2: token accuracy on group-word state tracking. Models are trained on length 64 and tested
 on 64, 256 and 512 (4$\times$ and 8$\times$ longer). Bold: best in column (within 0.005).
-Chance is 0.5 / 0.333 / 0.167. One seed; \todo{rerun with seeds 0--2}.}
+Chance is 0.5 / 0.333 / 0.167. Mean $\pm$ standard deviation over 3 seeds.}
 \label{tab:state}
 \end{table}
 
@@ -14,7 +14,7 @@ Chance is 0.5 / 0.333 / 0.167. One seed; \todo{rerun with seeds 0--2}.}
 \includegraphics[width=\linewidth]{figures/state_tracking}
 \caption{Length generalisation on state tracking. Colour = architecture family, line style =
 eigenvalue range (dashed/square: positive only; solid/circle: extended to negative). Only models whose
-transitions can represent the group keep their accuracy beyond the training length (shaded).}
+transitions can represent the group keep their accuracy beyond the training length (grey band). Lines: mean over 3 seeds; shading: min--max.}
 \label{fig:state}
 \end{figure}
 

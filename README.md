@@ -35,21 +35,21 @@ precision, and every model's token-by-token decoding is tested against its paral
 
 ## First results
 
-**RQ2, state tracking** (RTX 4050, one seed, 2 layers, trained on length 64). Full table:
+**RQ2, state tracking** (RTX 4050, mean of 3 seeds, 2 layers, trained on length 64). Full table:
 `report/tables/state_tracking.tex`.
 
 ![state tracking](report/figures/state_tracking.png)
 
 | Test length 512 | Z2 (parity) | Z3 | S3 |
 |---|---|---|---|
-| Transformer | 0.534 | 0.422 | 0.189 |
-| SSM, a in (0,1) | 0.542 | 0.376 | 0.195 |
-| SSM, a in (-1,1) | **0.998** | 0.356 | 0.230 |
-| Gated DeltaNet, beta in (0,1) | 0.590 | 0.491 | 0.208 |
-| Gated DeltaNet, beta in (0,2) | **0.991** | 0.486 | 0.509 |
+| Transformer | 0.537 | 0.422 | 0.188 |
+| SSM, a in (0,1) | 0.546 | 0.405 | 0.193 |
+| SSM, a in (-1,1) | **0.999** | 0.368 | 0.254 |
+| Gated DeltaNet, beta in (0,1) | 0.586 | 0.479 | 0.209 |
+| Gated DeltaNet, beta in (0,2) | **0.987** | 0.472 | 0.542 (seeds: 0.51 / 0.83 / 0.28) |
 
 Only negative eigenvalues make parity length-generalise. Nothing tested so far generalises on Z3
-(a rotation), and only DeltaNet with beta in (0,2) fits S3 at the training length (0.999).
+(a rotation). Only DeltaNet with beta in (0,2) fits S3 at the training length, and only in 2 of 3 seeds.
 
 Smoke-test note for RQ1: on MQAR, a 2-layer attention model with one 64-dimensional head reaches
 about 91% in 3k steps, while the same model with 2 or 4 narrower heads stalls near 53%. Recall
