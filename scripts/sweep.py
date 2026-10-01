@@ -42,6 +42,7 @@ def summarise(metrics: dict, label: str, axis_labels: dict) -> dict:
         params=metrics["params"],
         state_size=metrics.get("state_size"),
         steps=metrics["steps_run"],
+        steps_to_90=metrics.get("steps_to_90"),
         train_time_s=round(metrics["train_time_s"], 1),
         peak_mem_mb=None if metrics["peak_mem_mb"] is None else round(metrics["peak_mem_mb"], 1),
     )

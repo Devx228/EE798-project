@@ -116,7 +116,7 @@ def train(cfg: dict, out_dir: str | Path | None = None, device: str | None = Non
         torch.cuda.reset_peak_memory_stats(dev)
 
     log_f = open(out_dir / "log.jsonl", "w")
-    best_acc, t0, step = 0.0, time.perf_counter(), 0
+    best_acc, t0, step, steps_to_90 = 0.0, time.perf_counter(), 0, None
     for step in range(tcfg["steps"]):
         for group in opt.param_groups:
             group["lr"] = lr_at(step, tcfg)
@@ -136,6 +136,8 @@ def train(cfg: dict, out_dir: str | Path | None = None, device: str | None = Non
         if (step + 1) % tcfg["eval_every"] == 0 or last:
             res = evaluate(model, eval_sets["main"], tcfg["eval_batch_size"], dev, amp_dtype)
             best_acc = max(best_acc, res["acc"])
+            if steps_to_90 is None and res["acc"] >= 0.9:
+                steps_to_90 = step + 1  # when the task "clicks": recall tasks learn in a sudden jump
             record = {**(record or {"step": step, "loss": loss.item()}), "eval_acc": res["acc"], "eval_seq_acc": res["seq_acc"]}
         if record:
             record["time"] = time.perf_counter() - t0
@@ -166,6 +168,7 @@ def train(cfg: dict, out_dir: str | Path | None = None, device: str | None = Non
         "peak_mem_mb": torch.cuda.max_memory_allocated(dev) / 2**20 if dev.type == "cuda" else None,
         "device": torch.cuda.get_device_name(dev) if dev.type == "cuda" else "cpu",
         "best_main_acc": best_acc,
+        "steps_to_90": steps_to_90,
         "eval": results,
     }
     with open(out_dir / "metrics.json", "w") as f:
