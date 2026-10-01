@@ -40,16 +40,26 @@ precision, and every model's token-by-token decoding is tested against its paral
 
 ![state tracking](report/figures/state_tracking.png)
 
-| Test length 512 | Z2 (parity) | Z3 | S3 |
+| Test length 512 (mean of 3 seeds) | Z2 (parity) | Z3 | S3 |
 |---|---|---|---|
 | Transformer | 0.537 | 0.422 | 0.188 |
 | SSM, a in (0,1) | 0.546 | 0.405 | 0.193 |
 | SSM, a in (-1,1) | **0.999** | 0.368 | 0.254 |
 | Gated DeltaNet, beta in (0,1) | 0.586 | 0.479 | 0.209 |
-| Gated DeltaNet, beta in (0,2) | **0.987** | 0.472 | 0.542 (seeds: 0.51 / 0.83 / 0.28) |
+| Gated DeltaNet, beta in (0,2) | **0.987** | 0.472 | 0.542 (seeds 0.51 / 0.83 / 0.28) |
+| *Rotational SSM (Mamba-3 style)* | 0.628 | 0.449 | 0.181 |
+| *DeltaProduct2, beta in (0,1)* | 0.593 | 0.516 | 0.209 |
+| *DeltaProduct2, beta in (0,2)* | 0.951 | 0.511 | **0.912** (seeds 0.90 / 0.91 / 0.93) |
 
-Only negative eigenvalues make parity length-generalise. Nothing tested so far generalises on Z3
-(a rotation). Only DeltaNet with beta in (0,2) fits S3 at the training length, and only in 2 of 3 seeds.
+- Negative eigenvalues are what make parity length-generalise.
+- DeltaProduct2 with beta in (0,2) is the only model that learns S3 reliably and keeps 91% at 8x the
+  training length.
+- Z3 resists every model: several fit length 64 almost perfectly, then fall to about 0.5 at 512.
+- The rotational SSM can represent Z3 but does not learn it. It fits short training lengths (1.00 at 16,
+  0.72 at 64) and never generalises; its learned angles are not multiples of 120 degrees
+  (`scripts/inspect_rotation.py`).
+
+![extensions](report/figures/state_tracking_ext.png)
 
 Smoke-test note for RQ1: on MQAR, a 2-layer attention model with one 64-dimensional head reaches
 about 91% in 3k steps, while the same model with 2 or 4 narrower heads stalls near 53%. Recall
@@ -106,7 +116,8 @@ docs/               setup notes
 - [x] Triton forward scan kernel (interpreter-tested)
 - [x] State-tracking sweep on the RTX 4050, plotting script (`scripts/plot_results.py`)
 - [x] Extensions: rotational SSM (Mamba-3 style) and DeltaProduct, with tests
-- [ ] GPU sweeps for the extensions (`state_tracking`, `rotation_length`), angle figure (`scripts/inspect_rotation.py`)
+- [x] GPU sweeps for the extensions (`state_tracking`, `rotation_length`)
+- [ ] Angle figure from GPU checkpoints (`scripts/inspect_rotation.py`)
 - [ ] Remaining sweeps, qualitative figures (state heatmaps, attention maps)
 - [ ] Triton backward kernel, then compare with the chunked PyTorch path during training
 - [ ] Stretch: complex / rotational transitions (Mamba-3 style) for Z_m, small TinyStories language model

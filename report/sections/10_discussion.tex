@@ -4,15 +4,22 @@
 \paragraph{Failure case 1: recall beyond state capacity.} \todo{}
 \paragraph{Failure case 2: parity with positive decays.} \todo{}
 \paragraph{Failure case 3: expressible but not learned (rotational SSM on $\mathbb{Z}_3$).}
-\todo{Rewrite in own words once the GPU sweep (rotation\_length) is in. CPU preview: the rotational SSM
-can represent $\mathbb{Z}_3$ exactly (unit test: $\theta=2\pi/3$ returns the state after 3 steps), yet
-training reaches 97\% / 81\% / 48\% at training lengths 16 / 32 / 64 and never generalises to 512.
-Reading the layer-1 angles off the weights (Fig.~\ref{fig:rotation-angles}) shows why: the learned
-rotations are not multiples of $120^\circ$ and the decays are 0.37--0.99, i.e.\ the network found a
-short-horizon shortcut instead of the group rotation. Hypothesis for the length dependence: the loss
-depends on $\cos(k\theta)$ for $k\le T$, so its landscape in $\theta$ oscillates faster as $T$ grows.
-Contrast: negative eigenvalues and $\beta\to 2$ reflections are \emph{saturating} parametrisations
-(approached exponentially), whereas a rotation angle must hit an interior value exactly.}
+\todo{Rewrite in own words. Evidence: the rotational SSM can represent $\mathbb{Z}_3$ exactly (unit
+test: $\theta=2\pi/3$ returns the state after 3 steps). Trained at length 16 / 32 / 64 it reaches
+1.000 / 0.995 / 0.719 at its training length (Table~\ref{tab:rotation-length}); at 64 two of three seeds
+fail. No configuration generalises: at length 512 all are at 0.38--0.43 (chance 0.33). Reading the
+layer-1 angles off the weights (Fig.~\ref{fig:rotation-angles}) shows the learned rotations are not
+multiples of $120^\circ$ and the decays are well below 1, i.e.\ the network learned a short-horizon
+shortcut rather than the group rotation. Hypothesis for the length dependence: the loss depends on
+$\cos(k\theta)$ for $k\le T$, so its landscape in $\theta$ oscillates faster as $T$ grows.}
+
+\paragraph{Failure case 4: $\mathbb{Z}_3$ resists every model, although $S_3\supset\mathbb{Z}_3$ does not.}
+\todo{DeltaProduct$_2$ ($\beta\in(0,2)$) generalises on $S_3$ (0.91 at 512, all seeds) yet not on
+$\mathbb{Z}_3$ (0.51), even though $\mathbb{Z}_3$ is the rotation subgroup of $S_3$. Tentative
+explanation, to be stated as a hypothesis: in $S_3$ the transpositions can be implemented by single exact
+reflections ($\beta\to2$, a saturating parametrisation), and the 3-cycles then arise as their products;
+in $\mathbb{Z}_3$ every non-identity token must itself be a rotation by exactly $\pm120^\circ$, which needs
+an exact interior angle between two keys. Same pattern as negative eigenvalues vs.\ rotation angles.}
 
 \begin{figure}[h]\centering
 \includegraphics[width=\linewidth]{figures/rotation_angles}

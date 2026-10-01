@@ -157,12 +157,65 @@ def state_tracking(csv_path: Path):
     print(f"wrote {FIG_DIR / 'state_tracking.pdf'} and {TAB_DIR / 'state_tracking.tex'} ({n_seeds} seed(s))")
 
 
+TRAIN_LEN_COLOR = {"T16": "#86b6ef", "T32": "#2a78d6", "T64": "#104281"}  # ordinal blue ramp, light -> dark
+
+
+def rotation_length(csv_path: Path):
+    """Rotational SSM on Z3: accuracy vs test length for each training length (RQ2b ablation)."""
+    rows = read_rows(csv_path)
+    n_seeds = len({r["seed"] for r in rows})
+    plt.rcParams.update({"font.family": "sans-serif", "mathtext.fontset": "dejavusans"})
+    fig, ax = plt.subplots(figsize=(5.2, 3.3))
+    style_axes(ax)
+    ax.axhline(1 / 3, color=MUTED, linewidth=1, linestyle=(0, (1, 2)))
+    ax.text(15, 1 / 3 - 0.015, "chance", color=MUTED, fontsize=7, ha="left", va="top")
+    table = []
+    for label, color in TRAIN_LEN_COLOR.items():
+        runs = [r for r in rows if r["train_len"] == label]
+        if not runs:
+            continue
+        T = int(label[1:])
+        cols = [("acc_main", T)] + [(f"acc_len{L}", L) for L in (64, 256, 512) if L > T]
+        xs = [L for _, L in cols]
+        vals = [[float(r[c]) for r in runs] for c, _ in cols]
+        ax.plot(xs, [mean(v) for v in vals], color=color, linewidth=2, marker="o", markersize=6.5,
+                markeredgecolor="white", markeredgewidth=1.2, label=f"trained on length {T}", zorder=3)
+        ax.scatter([T], [mean(vals[0])], s=110, facecolor="none", edgecolor=color, linewidth=1.5, zorder=4)
+        if n_seeds > 1:
+            ax.fill_between(xs, [min(v) for v in vals], [max(v) for v in vals], color=color, alpha=0.12, linewidth=0)
+        table.append((T, {L: v for (_, L), v in zip(cols, vals)}))
+    ax.set_xscale("log", base=2)
+    ticks = [16, 32, 64, 256, 512]
+    ax.set_xticks(ticks, [str(t) for t in ticks])
+    ax.minorticks_off()
+    ax.set_ylim(0, 1.04)
+    ax.set_xlabel("test sequence length (ring = training length)", fontsize=8.5, color=INK_2)
+    ax.set_ylabel("token accuracy", fontsize=8.5, color=INK_2)
+    ax.set_title(r"Rotational SSM on $\mathbb{Z}_3$", fontsize=10, color=INK, loc="left")
+    ax.legend(frameon=False, fontsize=8, labelcolor=INK_2, loc="upper right")
+    fig.tight_layout()
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    for ext in ("pdf", "png"):
+        fig.savefig(FIG_DIR / f"rotation_length.{ext}", dpi=200, facecolor="white")
+    plt.close(fig)
+
+    lengths = [16, 32, 64, 256, 512]
+    lines = [r"\begin{tabular}{l" + "c" * len(lengths) + "}", r"\toprule",
+             "Train length & " + " & ".join(f"test {L}" for L in lengths) + r" \\", r"\midrule"]
+    for T, accs in table:
+        lines.append(f"{T} & " + " & ".join(fmt(accs[L]) if L in accs else "--" for L in lengths) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    TAB_DIR.mkdir(parents=True, exist_ok=True)
+    (TAB_DIR / "rotation_length.tex").write_text("\n".join(lines) + "\n")
+    print(f"wrote {FIG_DIR / 'rotation_length.pdf'} and {TAB_DIR / 'rotation_length.tex'} ({n_seeds} seed(s))")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("sweep", choices=["state_tracking"])
+    ap.add_argument("sweep", choices=["state_tracking", "rotation_length"])
     ap.add_argument("--results", type=Path, default=ROOT / "results")
     args = ap.parse_args()
-    {"state_tracking": state_tracking}[args.sweep](args.results / args.sweep / "summary.csv")
+    {"state_tracking": state_tracking, "rotation_length": rotation_length}[args.sweep](args.results / args.sweep / "summary.csv")
 
 
 if __name__ == "__main__":

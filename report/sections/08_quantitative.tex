@@ -18,6 +18,33 @@ transitions can represent the group keep their accuracy beyond the training leng
 \label{fig:state}
 \end{figure}
 
+\paragraph{Beyond negative eigenvalues (RQ2b).} Table~\ref{tab:state} (bottom block) and
+Fig.~\ref{fig:state-ext} add the rotational SSM and DeltaProduct$_2$.
+\todo{Interpret: DeltaProduct$_2$ with $\beta\in(0,2)$ is the only model that learns $S_3$ on all 3
+seeds and keeps 0.91 at 8$\times$ the training length (Gated DeltaNet: 0.54, high variance). On
+$\mathbb{Z}_3$, every model that fits the training length (attention, DeltaNet, DeltaProduct, rotational
+SSM: 0.97--1.00) falls to 0.43--0.52 at length 512. The rotational SSM fits $\mathbb{Z}_2$ at length 64
+on only 1 of 3 seeds.}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{figures/state_tracking_ext}
+\caption{The extensions against their predecessors (dashed). Lines: mean over 3 seeds; shading: min--max.}
+\label{fig:state-ext}
+\end{figure}
+
+\begin{table}[h]\centering\small
+\input{tables/rotation_length}
+\caption{Rotational SSM on $\mathbb{Z}_3$ trained at different lengths (mean $\pm$ std over 3 seeds).}
+\label{tab:rotation-length}
+\end{table}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.6\linewidth]{figures/rotation_length}
+\caption{Rotational SSM on $\mathbb{Z}_3$: accuracy vs.\ test length for three training lengths.
+Ring: the training length. Shading: min--max over 3 seeds.}
+\label{fig:rotation-length}
+\end{figure}
+
 \todo{Table: RQ1 MQAR accuracy vs.\ number of pairs (with state size column).}
 \todo{Table: RQ3 hybrid placement.}
 \todo{Table: RQ4 latency / memory / decode throughput on the RTX 4050.}
