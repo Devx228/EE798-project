@@ -46,6 +46,33 @@ def learned_rotation(run_dir: Path):
     return rel, decay, n_tokens
 
 
+def draw_panel(ax, title: str, rel: torch.Tensor, decay_min: float, decay_max: float):
+    """rel: ``[tokens, pairs]`` angles in degrees relative to token 0 (row 0 is token 0 itself)."""
+    n_tokens = rel.shape[0]
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    ax.spines["bottom"].set_color(AXIS)
+    ax.tick_params(colors=MUTED, labelcolor=INK_2, labelsize=8, length=3)
+    for target in (-120, 0, 120):
+        ax.axvline(target, color=GRID if target == 0 else MUTED, linewidth=1, linestyle=(0, (2, 2)), zorder=1)
+    for tok in range(1, n_tokens):
+        ax.scatter(rel[tok], [tok] * rel.shape[1], s=42, color=BLUE, edgecolor="white", linewidth=1.2, zorder=3)
+    ax.set_yticks(range(1, n_tokens), [f"token {t}" for t in range(1, n_tokens)])
+    ax.set_ylim(0.4, n_tokens - 0.4)
+    ax.set_xlim(-180, 180)
+    ax.set_xticks([-180, -120, -60, 0, 60, 120, 180])
+    ax.set_xlabel("angle relative to token 0 (degrees)", fontsize=8, color=INK_2)
+    ax.set_title(f"{title}\ndecay per head: {decay_min:.2f}-{decay_max:.2f}", fontsize=8.5, color=INK, loc="left")
+
+
+def save(fig, out: Path):
+    fig.tight_layout()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    for ext in ("pdf", "png"):
+        fig.savefig(out.with_suffix(f".{ext}"), dpi=200, facecolor="white")
+    print(f"wrote {out}.pdf/.png  (dashed lines: the +-120 degree rotations that solve Z_3)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("runs", nargs="+", type=Path, help="run directories containing model.pt")
@@ -55,29 +82,11 @@ def main():
     plt.rcParams.update({"font.family": "sans-serif"})
     fig, axes = plt.subplots(1, len(args.runs), figsize=(3.6 * len(args.runs), 2.6), sharey=True, squeeze=False)
     for ax, run in zip(axes[0], args.runs):
-        rel, decay, n_tokens = learned_rotation(run)
-        for side in ("top", "right", "left"):
-            ax.spines[side].set_visible(False)
-        ax.spines["bottom"].set_color(AXIS)
-        ax.tick_params(colors=MUTED, labelcolor=INK_2, labelsize=8, length=3)
-        for target in (-120, 0, 120):
-            ax.axvline(target, color=GRID if target == 0 else MUTED, linewidth=1, linestyle=(0, (2, 2)), zorder=1)
-        for tok in range(1, n_tokens):
-            ax.scatter(rel[tok], [tok] * rel.shape[1], s=42, color=BLUE, edgecolor="white", linewidth=1.2, zorder=3)
-        ax.set_yticks(range(1, n_tokens), [f"token {t}" for t in range(1, n_tokens)])
-        ax.set_ylim(0.4, n_tokens - 0.4)
-        ax.set_xlim(-180, 180)
-        ax.set_xticks([-180, -120, -60, 0, 60, 120, 180])
-        ax.set_xlabel("angle relative to token 0 (degrees)", fontsize=8, color=INK_2)
-        ax.set_title(f"{run.name}\ndecay per head: {decay.min():.2f}-{decay.max():.2f}", fontsize=8.5,
-                     color=INK, loc="left")
+        rel, decay, _ = learned_rotation(run)
+        draw_panel(ax, run.name, rel, decay.min().item(), decay.max().item())
         print(f"{run.name}: angles (deg, rows = tokens 1..) =\n{rel[1:].round(decimals=1)}\n"
               f"decay range {decay.min():.3f}-{decay.max():.3f}")
-    fig.tight_layout()
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    for ext in ("pdf", "png"):
-        fig.savefig(args.out.with_suffix(f".{ext}"), dpi=200, facecolor="white")
-    print(f"wrote {args.out}.pdf/.png  (dashed lines: the +-120 degree rotations that solve Z_3)")
+    save(fig, args.out)
 
 
 if __name__ == "__main__":

@@ -117,7 +117,7 @@ docs/               setup notes
 - [x] State-tracking sweep on the RTX 4050, plotting script (`scripts/plot_results.py`)
 - [x] Extensions: rotational SSM (Mamba-3 style) and DeltaProduct, with tests
 - [x] GPU sweeps for the extensions (`state_tracking`, `rotation_length`)
-- [ ] Angle figure from GPU checkpoints (`scripts/inspect_rotation.py`)
+- [x] Angle figure from the GPU checkpoint (`report/figures/rotation_angles.png`)
 - [ ] Remaining sweeps, qualitative figures (state heatmaps, attention maps)
 - [ ] Triton backward kernel, then compare with the chunked PyTorch path during training
 - [ ] Stretch: complex / rotational transitions (Mamba-3 style) for Z_m, small TinyStories language model

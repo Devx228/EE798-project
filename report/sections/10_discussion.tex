@@ -9,8 +9,10 @@ test: $\theta=2\pi/3$ returns the state after 3 steps). Trained at length 16 / 3
 1.000 / 0.995 / 0.719 at its training length (Table~\ref{tab:rotation-length}); at 64 two of three seeds
 fail. No configuration generalises: at length 512 all are at 0.38--0.43 (chance 0.33). Reading the
 layer-1 angles off the weights (Fig.~\ref{fig:rotation-angles}) shows the learned rotations are not
-multiples of $120^\circ$ and the decays are well below 1, i.e.\ the network learned a short-horizon
-shortcut rather than the group rotation. Hypothesis for the length dependence: the loss depends on
+multiples of $120^\circ$, tokens 1 and 2 receive nearly the \emph{same} angle in every pair (e.g.\
+$-136.7^\circ$ vs.\ $-134.8^\circ$), so the rotation cannot even distinguish them, and part of the memory
+decays (0.63--1.00). The network learned a short-horizon shortcut rather than the group rotation (GPU
+checkpoint, training length 16, seed 0: 1.000 at length 16, 0.544 at 64). Hypothesis for the length dependence: the loss depends on
 $\cos(k\theta)$ for $k\le T$, so its landscape in $\theta$ oscillates faster as $T$ grows.}
 
 \paragraph{Failure case 4: $\mathbb{Z}_3$ resists every model, although $S_3\supset\mathbb{Z}_3$ does not.}
@@ -24,7 +26,8 @@ an exact interior angle between two keys. Same pattern as negative eigenvalues v
 \begin{figure}[h]\centering
 \includegraphics[width=\linewidth]{figures/rotation_angles}
 \caption{Learned layer-1 rotation angles of the rotational SSM on $\mathbb{Z}_3$, relative to token 0.
-Dashed lines: the $\pm120^\circ$ rotations that solve the task. \todo{regenerate from GPU checkpoints}}
+Dashed lines: the $\pm120^\circ$ rotations that solve the task, which would require token 1 and token 2
+on opposite dashed lines within the same pair. GPU checkpoint, training length 16, seed 0.}
 \label{fig:rotation-angles}
 \end{figure}
 
