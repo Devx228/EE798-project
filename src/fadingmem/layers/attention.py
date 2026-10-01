@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .common import ShortConv
+
 
 def rope_cache(max_len: int, dim: int, base: float = 10000.0, device=None):
     inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, device=device).float() / dim))
@@ -23,11 +25,17 @@ def apply_rope(x, cos, sin):
 
 
 class CausalSelfAttention(nn.Module):
-    def __init__(self, d_model: int, n_heads: int = 4, max_len: int = 8192, rope_base: float = 10000.0):
+    """``short_conv > 0`` adds the same causal depthwise convolution over q/k/v that the recurrent
+    mixers use. It hands every layer local (previous-token) context for free, so a recall comparison
+    measures the memory mechanism rather than whether attention managed to learn a previous-token head."""
+
+    def __init__(self, d_model: int, n_heads: int = 4, max_len: int = 8192, rope_base: float = 10000.0,
+                 short_conv: int = 0):
         super().__init__()
         assert d_model % n_heads == 0
         self.n_heads, self.head_dim = n_heads, d_model // n_heads
         self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.conv = ShortConv(3 * d_model, short_conv) if short_conv > 0 else None
         self.out_proj = nn.Linear(d_model, d_model, bias=False)
         self.max_len, self.rope_base = max_len, rope_base
         cos, sin = rope_cache(max_len, self.head_dim, rope_base)
@@ -40,9 +48,13 @@ class CausalSelfAttention(nn.Module):
             self.cos, self.sin = cos, sin
         return self.cos[offset : offset + T], self.sin[offset : offset + T]
 
+    def _project(self, x):
+        qkv = self.qkv(x)
+        return self.conv(qkv) if self.conv is not None else qkv
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         b, T, D = x.shape
-        q, k, v = self.qkv(x).view(b, T, 3, self.n_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = self._project(x).view(b, T, 3, self.n_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         cos, sin = self._rope(T)
         q, k = apply_rope(q, cos, sin), apply_rope(k, cos, sin)
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
@@ -51,7 +63,7 @@ class CausalSelfAttention(nn.Module):
     def attention_map(self, x: torch.Tensor) -> torch.Tensor:
         """Explicit attention probabilities ``[b, H, T, T]`` for visualisation."""
         b, T, _ = x.shape
-        q, k, _ = self.qkv(x).view(b, T, 3, self.n_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, _ = self._project(x).view(b, T, 3, self.n_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         cos, sin = self._rope(T)
         q, k = apply_rope(q, cos, sin), apply_rope(k, cos, sin)
         scores = (q @ k.transpose(-1, -2)) * self.head_dim**-0.5
@@ -62,12 +74,18 @@ class CausalSelfAttention(nn.Module):
     def init_cache(self, batch: int, device, dtype, max_len: int | None = None):
         max_len = max_len or self.max_len
         shape = (batch, self.n_heads, max_len, self.head_dim)
-        return {"k": torch.zeros(shape, device=device, dtype=dtype), "v": torch.zeros(shape, device=device, dtype=dtype), "pos": 0}
+        cache = {"k": torch.zeros(shape, device=device, dtype=dtype), "v": torch.zeros(shape, device=device, dtype=dtype), "pos": 0}
+        if self.conv is not None:
+            cache["conv"] = self.conv.init_state(batch, device, dtype)
+        return cache
 
     def step(self, x_t: torch.Tensor, cache: dict) -> torch.Tensor:
         b, D = x_t.shape
         pos = cache["pos"]
-        q, k, v = self.qkv(x_t).view(b, 3, self.n_heads, 1, self.head_dim).unbind(1)
+        qkv = self.qkv(x_t)
+        if self.conv is not None:
+            qkv, cache["conv"] = self.conv.step(qkv, cache["conv"])
+        q, k, v = qkv.view(b, 3, self.n_heads, 1, self.head_dim).unbind(1)
         cos, sin = self._rope(1, pos)
         q, k = apply_rope(q, cos, sin), apply_rope(k, cos, sin)
         cache["k"][:, :, pos : pos + 1] = k

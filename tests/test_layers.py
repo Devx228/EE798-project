@@ -11,6 +11,7 @@ VARIANTS = {  # extra mixer options: Mamba-3-style rotation, DeltaProduct with 2
     "rotary": {"ssm": {"rotary": True}},
     "product2": {"deltanet": {"n_householder": 2}},
     "product3": {"deltanet": {"n_householder": 3, "gated": False}},
+    "attn_conv": {"attn": {"short_conv": 4}},
 }
 
 
@@ -18,7 +19,7 @@ def small_model(pattern, neg_eigen=False, variant="plain", **kw):
     extra = VARIANTS[variant]
     cfg = ModelConfig(
         vocab_size=50, d_model=32, n_layers=len(pattern), pattern=pattern, mlp_ratio=2, neg_eigen=neg_eigen,
-        attn={"n_heads": 2},
+        attn={"n_heads": 2, **extra.get("attn", {})},
         ssm={"d_state": 8, "expand": 2, "head_dim": 16, "chunk_size": 8, **extra.get("ssm", {})},
         deltanet={"n_heads": 2, "chunk_size": 8, **extra.get("deltanet", {})}, **kw,
     )
@@ -50,7 +51,8 @@ def test_step_matches_forward(pattern, neg_eigen):
     torch.testing.assert_close(full, steps, atol=1e-8, rtol=1e-6)
 
 
-@pytest.mark.parametrize("variant,pattern", [("rotary", "M"), ("rotary", "MA"), ("product2", "D"), ("product3", "D")])
+@pytest.mark.parametrize("variant,pattern", [("rotary", "M"), ("rotary", "MA"), ("product2", "D"), ("product3", "D"),
+                                             ("attn_conv", "A"), ("attn_conv", "MA")])
 @pytest.mark.parametrize("neg_eigen", [False, True])
 def test_variant_step_matches_forward(variant, pattern, neg_eigen):
     torch.manual_seed(3)

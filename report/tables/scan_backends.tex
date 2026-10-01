@@ -1,0 +1,12 @@
+\begin{tabular}{lccc}
+\toprule
+Backend & $T=4$k & $T=8$k & $T=16$k \\
+\midrule
+Chunked PyTorch (ms) & 12.6 & 24.9 & 43.6 \\
+Triton kernel (ms) & 8.7 & 16.7 & 32.7 \\
+Speed-up & 1.45$\times$ & 1.49$\times$ & 1.33$\times$ \\
+Chunked peak memory (MB) & 384 & 752 & 1487 \\
+Triton peak memory (MB) & 89 & 162 & 307 \\
+Triton bandwidth (GB/s) & 8.7 & 9.1 & 9.3 \\
+\bottomrule
+\end{tabular}

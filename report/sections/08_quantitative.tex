@@ -47,5 +47,37 @@ Ring: the training length. Shading: min--max over 3 seeds.}
 
 \todo{Table: RQ1 MQAR accuracy vs.\ number of pairs (with state size column).}
 \todo{Table: RQ3 hybrid placement.}
-\todo{Table: RQ4 latency / memory / decode throughput on the RTX 4050.}
+\paragraph{Efficiency on one GPU (RQ4).} All measurements: RTX 4050 Laptop GPU (6\,GB), bf16, one layer,
+$d_{\text{model}}=256$, batch 4.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{figures/efficiency_layer}
+\caption{Training-time cost of one layer vs.\ sequence length (log--log). Attention uses PyTorch's fused
+SDPA (FlashAttention) kernel; the SSM and Gated DeltaNet use this project's unfused chunked PyTorch code.}
+\label{fig:eff-layer}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.8\linewidth]{figures/efficiency_decode}
+\caption{Inference-time cost: per-token decode latency and the memory each sequence holds between tokens.}
+\label{fig:eff-decode}
+\end{figure}
+
+\begin{table}[h]\centering\small
+\input{tables/scan_backends}
+\caption{SSM scan only: chunked PyTorch vs.\ the forward-only Triton kernel (fp32, batch 4, 8 heads,
+$P=N=64$). Peak RTX 4050 Laptop memory bandwidth is about 192\,GB/s.}
+\label{tab:scan}
+\end{table}
+\todo{Interpret: (1) at every measured length the fused FlashAttention kernel beats our unfused scans;
+attention's forward time grows $\sim3\times$ per doubling from 4k (entering its quadratic regime) while the
+SSM's grows $2\times$, extrapolating to a crossover near 32k tokens -- beyond this GPU's memory for our
+implementation. Kernel quality matters as much as asymptotic complexity, which is why production SSMs
+ship fused kernels. (2) Memory: the chunked implementations materialise $L\times L$ decay masks and
+einsum intermediates, so they use more memory than FlashAttention here. (3) Decode: the KV cache grows
+$64\times$ (512\,KB$\to$32\,MB) while per-token latency rises only 17\%; at this scale decoding is bound by
+kernel-launch overhead, so the constant-size state wins on memory, not (yet) on latency. (4) Triton:
+1.3--1.5$\times$ faster and 4.8$\times$ less memory than chunked PyTorch, but only $\sim$9\,GB/s
+($\approx5\%$ of peak bandwidth): the time loop is sequential and only $b\cdot H\cdot P/B_P=64$ programs run,
+so the kernel is latency-bound -- the motivation for Mamba-2's matmul-based SSD algorithm.}
 \todo{Interpret every table in prose.}

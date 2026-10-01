@@ -210,12 +210,98 @@ def rotation_length(csv_path: Path):
     print(f"wrote {FIG_DIR / 'rotation_length.pdf'} and {TAB_DIR / 'rotation_length.tex'} ({n_seeds} seed(s))")
 
 
+MIXER_LABEL = {"attention": "Attention (SDPA)", "ssm": "Selective SSM (chunked)", "deltanet": "Gated DeltaNet (chunked)"}
+
+
+def _loglog(ax, title, ylabel, xlabel):
+    style_axes(ax)
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.minorticks_off()
+    ax.grid(axis="y", which="major", color=GRID, linewidth=0.6)
+    ax.set_title(title, fontsize=10, color=INK, loc="left")
+    ax.set_ylabel(ylabel, fontsize=8.5, color=INK_2)
+    ax.set_xlabel(xlabel, fontsize=8.5, color=INK_2)
+
+
+def benchmark(results_dir: Path):
+    """RQ4: training-time and decode-time cost on one GPU (CSV files from scripts/benchmark.py)."""
+    layer_csv = next(results_dir.glob("layer_*.csv"))
+    decode_csv = next(results_dir.glob("decode_*.csv"))
+    scan_csv = next(results_dir.glob("scan_*.csv"))
+    gpu = layer_csv.stem.split("_", 1)[1].replace("_", " ")
+    plt.rcParams.update({"font.family": "sans-serif", "mathtext.fontset": "dejavusans"})
+    marker = dict(marker="o", markersize=5.5, markeredgecolor="white", markeredgewidth=1.1, linewidth=2)
+
+    # -- training-time view: latency and memory of one layer vs sequence length --------------------
+    rows = read_rows(layer_csv)
+    fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.2))
+    panels = [("fwd_ms", "Forward latency", "ms"), ("fwd_bwd_ms", "Forward + backward latency", "ms"),
+              ("fwd_bwd_mem_mb", "Peak memory (fwd + bwd)", "MB")]
+    for ax, (col, title, unit) in zip(axes, panels):
+        _loglog(ax, title, unit, "sequence length")
+        for mixer, label in MIXER_LABEL.items():
+            pts = [(int(r["seq_len"]), float(r[col])) for r in rows if r["mixer"] == mixer and r[col]]
+            ax.plot(*zip(*pts), color=FAMILY_COLOR[mixer], label=label, **marker)
+        lengths = sorted({int(r["seq_len"]) for r in rows})
+        ax.set_xticks(lengths, [f"{L // 1024}k" if L >= 1024 else str(L) for L in lengths])
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=3, frameon=False, fontsize=8, labelcolor=INK_2)
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
+    for ext in ("pdf", "png"):
+        fig.savefig(FIG_DIR / f"efficiency_layer.{ext}", dpi=200, facecolor="white")
+    plt.close(fig)
+
+    # -- inference-time view: per-token decode latency and memory held per sequence ----------------
+    rows = read_rows(decode_csv)
+    fig, axes = plt.subplots(1, 2, figsize=(7.4, 3.2))
+    for ax, (col, title, unit) in zip(axes, [("ms_per_token", "Decode latency per token", "ms"),
+                                              ("state_kb", "KV cache / recurrent state", "KB")]):
+        _loglog(ax, title, unit, "context length (tokens)")
+        for mixer, label in MIXER_LABEL.items():
+            pts = [(int(r["context"]), float(r[col])) for r in rows if r["mixer"] == mixer]
+            ax.plot(*zip(*pts), color=FAMILY_COLOR[mixer], label=label, **marker)
+        ctx = sorted({int(r["context"]) for r in rows})
+        ax.set_xticks(ctx, [str(c) for c in ctx])
+    axes[0].set_ylim(0.5, 10)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=3, frameon=False, fontsize=8, labelcolor=INK_2)
+    fig.tight_layout(rect=(0, 0, 1, 0.9))
+    for ext in ("pdf", "png"):
+        fig.savefig(FIG_DIR / f"efficiency_decode.{ext}", dpi=200, facecolor="white")
+    plt.close(fig)
+
+    # -- scan backends table (lengths >= 4096: the first run's shorter lengths were clock-affected) --
+    rows = [r for r in read_rows(scan_csv) if int(r["seq_len"]) >= 4096]
+    lengths = sorted({int(r["seq_len"]) for r in rows})
+    get = {(r["backend"], int(r["seq_len"])): r for r in rows}
+    lines = [r"\begin{tabular}{l" + "c" * len(lengths) + "}", r"\toprule",
+             "Backend & " + " & ".join(f"$T={L // 1024}$k" for L in lengths) + r" \\", r"\midrule"]
+    for backend, label in [("chunked", "Chunked PyTorch (ms)"), ("triton", "Triton kernel (ms)")]:
+        lines.append(f"{label} & " + " & ".join(f"{float(get[(backend, L)]['ms']):.1f}" if (backend, L) in get else "--"
+                                                for L in lengths) + r" \\")
+    lines.append("Speed-up & " + " & ".join(
+        f"{float(get[('chunked', L)]['ms']) / float(get[('triton', L)]['ms']):.2f}$\\times$" for L in lengths) + r" \\")
+    for backend, label in [("chunked", "Chunked peak memory (MB)"), ("triton", "Triton peak memory (MB)")]:
+        lines.append(f"{label} & " + " & ".join(f"{float(get[(backend, L)]['peak_mem_mb']):.0f}" for L in lengths) + r" \\")
+    lines.append("Triton bandwidth (GB/s) & " + " & ".join(
+        f"{float(get[('triton', L)]['achieved_GBps']):.1f}" for L in lengths) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    TAB_DIR.mkdir(parents=True, exist_ok=True)
+    (TAB_DIR / "scan_backends.tex").write_text("\n".join(lines) + "\n")
+    print(f"wrote efficiency_layer, efficiency_decode figures and scan_backends table ({gpu})")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("sweep", choices=["state_tracking", "rotation_length"])
+    ap.add_argument("sweep", choices=["state_tracking", "rotation_length", "benchmark"])
     ap.add_argument("--results", type=Path, default=ROOT / "results")
     args = ap.parse_args()
-    {"state_tracking": state_tracking, "rotation_length": rotation_length}[args.sweep](args.results / args.sweep / "summary.csv")
+    if args.sweep == "benchmark":
+        benchmark(args.results / "benchmark")
+    else:
+        {"state_tracking": state_tracking, "rotation_length": rotation_length}[args.sweep](
+            args.results / args.sweep / "summary.csv")
 
 
 if __name__ == "__main__":

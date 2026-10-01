@@ -88,6 +88,9 @@ def bench_layer(args, device, dtype):
 
 
 def bench_scan(args, device, dtype):
+    """Backends are timed in separate passes (fast ones first) after a GPU warm-up. Interleaving them
+    with the slow Python-loop reference lets a laptop GPU drop its clocks between measurements, which
+    made the first round of short-sequence timings erratic."""
     rows = []
     H, P, N = args.d_model * 2 // 64, 64, 64
     backends = {"chunked": lambda *a: ssd_scan_chunked(*a, chunk_size=64)}
@@ -95,18 +98,24 @@ def bench_scan(args, device, dtype):
         from fadingmem.layers.triton_scan import ssd_scan_triton
 
         backends["triton"] = ssd_scan_triton
-    for T in args.lengths:
-        x = torch.randn(args.batch, T, H, P, device=device)
-        a = torch.rand(args.batch, T, H, device=device)
-        B, C = torch.randn(args.batch, T, N, device=device), torch.randn(args.batch, T, N, device=device)
-        current = dict(backends)
-        if T <= args.max_recurrent_len:
-            current["recurrent"] = ssd_scan_recurrent
-        for name, fn in current.items():
+        warm = torch.randn(4096, 4096, device=device)
+        for _ in range(50):  # bring the GPU to its boost clocks before the first measurement
+            warm @ warm
+        torch.cuda.synchronize()
+    backends["recurrent"] = ssd_scan_recurrent
+    for name, fn in backends.items():
+        for T in args.lengths:
+            if name == "recurrent" and T > args.max_recurrent_len:
+                continue
+            gen = torch.Generator(device=device).manual_seed(T)
+            x = torch.randn(args.batch, T, H, P, device=device, generator=gen)
+            a = torch.rand(args.batch, T, H, device=device, generator=gen)
+            B = torch.randn(args.batch, T, N, device=device, generator=gen)
+            C = torch.randn(args.batch, T, N, device=device, generator=gen)
             with torch.no_grad():
-                ms, mem = measure(lambda: fn(x, a, B, C), device, iters=5)
+                ms, mem = measure(lambda: fn(x, a, B, C), device, warmup=5, iters=20 if name != "recurrent" else 3)
             row = {"backend": name, "seq_len": T, "ms": ms, "peak_mem_mb": mem}
-            if name == "triton" and ms:
+            if ms:
                 bytes_moved = (x.numel() * 2 + a.numel() + B.numel() + C.numel()) * 4  # read x,a,B,C + write y
                 row["achieved_GBps"] = bytes_moved / (ms * 1e-3) / 1e9
             print(row, flush=True)
