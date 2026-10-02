@@ -2,6 +2,12 @@
 \label{sec:impl}
 % Guideline 2.7: meaningful snippets + explanation; state clearly what was written by you.
 
+\paragraph{Contributions and tools.} \todo{Required by the course guidelines (Sec.~5): state clearly which
+parts you did yourself and which tools you used. Check the course policy on AI assistants and disclose
+accordingly, e.g.\ that the code was developed with an AI coding assistant, and that you chose the
+experiments, ran them on your own GPU, verified the results and wrote the analysis. Be ready to explain every
+equation and code snippet in this report.}
+
 All components were implemented from scratch in PyTorch (repository: \todo{URL}). No external
 SSM / linear-attention library is used. Correctness is established by unit tests that compare every
 chunked algorithm with its step-by-step recurrence in float64 (max error $\sim10^{-15}$) and every
