@@ -1,10 +1,70 @@
 \section{Qualitative Results}
 \label{sec:qual}
-% Guideline 2.10: visualisations with meaningful captions, discussed in the text.
-\todo{Figures:
-(i) accuracy vs.\ position for parity (where does the positive-decay SSM lose track?);
-(ii) attention map of the Transformer on MQAR (the induction pattern) vs.\ the SSM's implicit
-     attention matrix $L\odot CB^\top$;
-(iii) SSM state norm / sign over time on a parity sequence, with and without negative eigenvalues;
-(iv) MQAR recall accuracy vs.\ number of pairs (capacity curve);
-(v) latency and memory vs.\ sequence length.}
+
+\paragraph{Length-generalisation curves.} Figure~\ref{fig:state} plots accuracy against test length for the
+baseline models. The shape of each curve is more informative than any single number. A model that learned the
+group operation produces a flat line at 1.0 (the negative-eigenvalue SSM and Gated DeltaNet on parity). A model
+that learned a shortcut starts high at the training length and slides towards chance as sequences get longer
+(Gated DeltaNet with $\beta\in(0,1)$ on parity; every model on $\mathbb{Z}_3$). A model that cannot fit the task
+at all stays near chance throughout (most models on $S_3$). The wide shaded band of Gated DeltaNet with
+$\beta\in(0,2)$ on $S_3$ shows that its success depends strongly on the random seed.
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=\linewidth]{figures/state_tracking}
+\caption{Length generalisation on state tracking for the baseline models. Colour encodes the architecture family
+and line style the eigenvalue range (dashed/square: positive only; solid/circle: extended to negative). Lines show
+the mean over 3 seeds and shading the min--max range; the grey band marks the training length.}
+\label{fig:state}
+\end{figure}
+
+\paragraph{The extensions against their predecessors.} Figure~\ref{fig:state-ext} places the two extensions next
+to the models they extend. On $S_3$ the effect of the second Householder step is unmistakable: the DeltaProduct
+curve stays near 1.0 out to length 256 with a narrow band across seeds, while Gated DeltaNet's curve is lower and
+its band spans almost the full range. On $\mathbb{Z}_3$ all four curves fall together. On $\mathbb{Z}_2$ the
+rotational SSM's wide band reflects one successful seed and two failures.
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=\linewidth]{figures/state_tracking_ext}
+\caption{Rotational SSM and DeltaProduct (solid, triangles) against the negative-eigenvalue SSM and Gated DeltaNet
+(dashed, circles). Mean over 3 seeds; shading: min--max.}
+\label{fig:state-ext}
+\end{figure}
+
+\paragraph{How generalisation decays with distance from the training length.} Figure~\ref{fig:rotation-length}
+shows the rotational SSM on $\mathbb{Z}_3$ for three training lengths. Each curve starts high at its own training
+length and decays smoothly towards chance; a model trained at 32 does better at 64 than one trained at 16
+(0.877 vs.\ 0.675), but all have collapsed by 512. Accuracy that degrades gradually with the distance from the
+training length is characteristic of a solution that tracks the state only approximately, so that the error
+accumulates over time.
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.6\linewidth]{figures/rotation_length}
+\caption{Rotational SSM on $\mathbb{Z}_3$: accuracy vs.\ test length for three training lengths (ring: the training
+length). Shading: min--max over 3 seeds.}
+\label{fig:rotation-length}
+\end{figure}
+
+\paragraph{What the rotational SSM actually learned.} In the first layer, the rotation angle of every state pair
+depends only on the current token, so the learned angles can be read directly from the weights.
+Figure~\ref{fig:rotation-angles} shows them for a model trained at length 16, which reaches 1.000 accuracy at that
+length. Solving $\mathbb{Z}_3$ by rotation requires, in at least one pair, token~1 at $+120^\circ$ and token~2 at
+$-120^\circ$ relative to token~0 (or the reverse), with a decay close to 1. Instead, seven of the eight pairs rotate by
+angles between $-34^\circ$ and $+73^\circ$, and in the pair with the largest rotation the two tokens receive almost
+the same angle ($-136.7^\circ$ and $-134.8^\circ$), so this pair cannot even tell them apart. Part of the memory also
+decays (decay between 0.63 and 1.00 per step). The network solved the short task with a combination of small,
+fading rotations that encodes recent history, not with the group rotation. This is direct evidence for a
+shortcut, consistent with its collapse at longer lengths.
+
+\begin{figure}[htbp]\centering
+\includegraphics[width=0.5\linewidth]{figures/rotation_angles}
+\caption{Learned first-layer rotation angles of the rotational SSM on $\mathbb{Z}_3$, relative to token~0, one dot
+per state pair (training length 16, seed 0). Dashed lines mark the $\pm120^\circ$ rotations that solve the task;
+a solution needs token~1 and token~2 on opposite dashed lines within the same pair.}
+\label{fig:rotation-angles}
+\end{figure}
+
+\paragraph{Recall and efficiency curves.} In Figure~\ref{fig:recall} the SSM curves drop like a cliff rather than
+gradually: with 16 pairs the small SSM is at 0.991, with 32 pairs at 0.134. Recall behaves like a capacity
+threshold, not a slow degradation. In Figure~\ref{fig:eff-decode} the attention cache is a straight line of
+slope 1 on log--log axes (linear growth) while the recurrent states are flat lines, which is the whole case for
+recurrent models in deployment.

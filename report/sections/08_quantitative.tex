@@ -1,102 +1,126 @@
 \section{Quantitative Results}
 \label{sec:quant}
-% Guideline 2.9: at least one clearly formatted table + interpretation.
 
-\begin{table}[h]\centering
+\subsection{State tracking and length generalisation (RQ2)}
+Table~\ref{tab:state} reports token accuracy at the training length (64) and at 4$\times$ and 8$\times$ that
+length. Chance level is $1/|G|$: 0.5 for $\mathbb{Z}_2$, 0.333 for $\mathbb{Z}_3$ and 0.167 for $S_3$.
+
+\begin{table}[htbp]\centering
 \resizebox{\linewidth}{!}{\input{tables/state_tracking}}
-\caption{RQ2: token accuracy on group-word state tracking. Models are trained on length 64 and tested
-on 64, 256 and 512 (4$\times$ and 8$\times$ longer). Bold: best in column (within 0.005).
-Chance is 0.5 / 0.333 / 0.167. Mean $\pm$ standard deviation over 3 seeds.}
+\caption{RQ2: token accuracy on group word problems (mean $\pm$ std over 3 seeds). Models are trained on length
+64 and tested on lengths 64, 256 and 512. Bold: within 0.005 of the best in the column. The lower block contains
+the two extensions. All recurrent models have the same state size (8192 floats).}
 \label{tab:state}
 \end{table}
 
-\begin{figure}[h]\centering
-\includegraphics[width=\linewidth]{figures/state_tracking}
-\caption{Length generalisation on state tracking. Colour = architecture family, line style =
-eigenvalue range (dashed/square: positive only; solid/circle: extended to negative). Only models whose
-transitions can represent the group keep their accuracy beyond the training length (grey band). Lines: mean over 3 seeds; shading: min--max.}
-\label{fig:state}
-\end{figure}
+\paragraph{Negative eigenvalues fix parity.} With decays restricted to $(0,1)$ the SSM reaches only 0.867 on
+parity even at the training length and falls to chance (0.546) at length 512, as predicted by the proposition
+in Section~\ref{sec:math}. Allowing $a_t\in(-1,1)$ changes nothing else in the model, yet it solves parity on all
+three seeds at every length (0.999 at 512, i.e.\ 8$\times$ the training length). Gated DeltaNet behaves the same
+way: with $\beta\in(0,2)$ it keeps 0.987 at length 512, with $\beta\in(0,1)$ it falls to 0.586.
 
-\paragraph{Beyond negative eigenvalues (RQ2b).} Table~\ref{tab:state} (bottom block) and
-Fig.~\ref{fig:state-ext} add the rotational SSM and DeltaProduct$_2$.
-\todo{Interpret: DeltaProduct$_2$ with $\beta\in(0,2)$ is the only model that learns $S_3$ on all 3
-seeds and keeps 0.91 at 8$\times$ the training length (Gated DeltaNet: 0.54, high variance). On
-$\mathbb{Z}_3$, every model that fits the training length (attention, DeltaNet, DeltaProduct, rotational
-SSM: 0.97--1.00) falls to 0.43--0.52 at length 512. The rotational SSM fits $\mathbb{Z}_2$ at length 64
-on only 1 of 3 seeds.}
+\paragraph{Fitting the training length is not the same as learning the rule.} Gated DeltaNet with
+$\beta\in(0,1)$ reaches 0.997 on parity at length 64, nearly perfect, but only 0.586 at 512. Its transitions
+cannot represent a sign flip, so it must have learned a solution that only works for short sequences. The
+Transformer shows the same pattern on $\mathbb{Z}_3$ (0.991 at 64, 0.422 at 512). Judged by training-length
+accuracy alone, these models would be ranked far too high.
 
-\begin{figure}[h]\centering
-\includegraphics[width=\linewidth]{figures/state_tracking_ext}
-\caption{The extensions against their predecessors (dashed). Lines: mean over 3 seeds; shading: min--max.}
-\label{fig:state-ext}
-\end{figure}
+\paragraph{DeltaProduct learns the non-abelian group.} $S_3$ separates the models most clearly. Only the
+delta-rule models with $\beta\in(0,2)$ fit it at all. Gated DeltaNet does so on two of three seeds (1.000 and
+0.999 at length 64) but fails on the third (0.446), and it generalises poorly (0.51, 0.83 and 0.28 at length 512,
+mean 0.542). DeltaProduct with two Householder steps per token fits $S_3$ on every seed and keeps
+$0.994\pm0.001$ at length 256 and $0.912\pm0.014$ at length 512. Both ingredients are necessary: DeltaProduct with
+$\beta\in(0,1)$ stays near chance on $S_3$ (0.209 at 512), because a product of matrices with eigenvalues in
+$(0,1]$ still cannot reflect.
 
-\begin{table}[h]\centering\small
+\paragraph{$\mathbb{Z}_3$ resists every model.} Several models fit $\mathbb{Z}_3$ at length 64 (Transformer
+0.991, Gated DeltaNet 0.996, DeltaProduct 0.998, rotational SSM 0.978), but none generalises: at length 512
+all lie between 0.37 and 0.52. This includes the two models whose transitions can represent a rotation by
+$120^\circ$, the rotational SSM and DeltaProduct with $\beta\in(0,2)$. We return to this in
+Section~\ref{sec:discussion}.
+
+\paragraph{The rotational SSM.} Rotations include the sign flip ($\theta=\pi$), yet the rotational SSM solves
+parity on only one of three seeds (0.628 on average at 512, against 0.999 for the negative-eigenvalue SSM).
+Table~\ref{tab:rotation-length} varies its training length on $\mathbb{Z}_3$: it fits short sequences perfectly
+(1.000 at length 16, 0.995 at 32) but becomes unreliable at 64 (0.719, two of three seeds fail), and no training
+length leads to generalisation (0.38--0.43 at length 512, chance 0.33).
+
+\begin{table}[htbp]\centering\small
 \input{tables/rotation_length}
-\caption{Rotational SSM on $\mathbb{Z}_3$ trained at different lengths (mean $\pm$ std over 3 seeds).}
+\caption{Rotational SSM on $\mathbb{Z}_3$ trained at lengths 16, 32 and 64 (mean $\pm$ std over 3 seeds); the
+first entry of each row is the training length.}
 \label{tab:rotation-length}
 \end{table}
 
-\begin{figure}[h]\centering
-\includegraphics[width=0.6\linewidth]{figures/rotation_length}
-\caption{Rotational SSM on $\mathbb{Z}_3$: accuracy vs.\ test length for three training lengths.
-Ring: the training length. Shading: min--max over 3 seeds.}
-\label{fig:rotation-length}
-\end{figure}
+\subsection{Associative recall (RQ1)}
+Table~\ref{tab:recall} and Figure~\ref{fig:recall} report recall accuracy as the number of key--value pairs grows.
 
-\paragraph{Associative recall (RQ1).} MQAR, length 256, vocabulary 512, $d_{\text{model}}=128$, 2 layers,
-up to 20k steps with early stopping at 99\% (budget from the calibration in Sec.~\ref{sec:discussion}); one seed.
-
-\begin{table}[h]\centering\small
+\begin{table}[htbp]\centering\small
 \input{tables/recall_capacity}
-\caption{RQ1: recall accuracy and steps until 90\% accuracy (``$>$20k'': never reached). State = floats of
-recurrent memory per sequence across both layers; attention keeps a KV cache that grows with the input.}
+\caption{RQ1: MQAR recall accuracy and the number of training steps until 90\% accuracy (``$>$20k'': never
+reached within the budget). State: floats of recurrent memory per sequence, summed over both layers; attention
+keeps a KV cache that grows with the input. One seed per configuration.}
 \label{tab:recall}
 \end{table}
 
-\begin{figure}[h]\centering
+\begin{figure}[htbp]\centering
 \includegraphics[width=0.62\linewidth]{figures/recall_capacity}
-\caption{Recall accuracy vs.\ number of key-value pairs to remember.}
+\caption{Recall accuracy against the number of key--value pairs to remember. The SSM breaks once the pairs
+outgrow its state; Gated DeltaNet does not break at 64 pairs despite having half the state of the larger SSM.}
 \label{fig:recall}
 \end{figure}
-\todo{Interpret: attention solves every size in 500 steps. The SSM breaks once the pairs outgrow its
-state (N=16: fails at 32; N=64: fails at 64), so capacity scales with state size. Gated DeltaNet, with
-half the state of SSM N=64, still solves 64 pairs: the delta rule (erase-then-write) uses a fixed state
-far more efficiently than additive accumulation. Steps-to-90\% grow with the number of pairs for every
-recurrent model. Caveat: one seed, and ``failed within 20k steps'' is an upper bound on what is learnable,
-not a proof of impossibility; the monotone dependence on $N$ supports the capacity reading.}
-\paragraph{Efficiency on one GPU (RQ4).} All measurements: RTX 4050 Laptop GPU (6\,GB), bf16, one layer,
-$d_{\text{model}}=256$, batch 4.
 
-\begin{figure}[h]\centering
+Attention with a short convolution solves every size, within 500 steps each time: retrieving one of 64 facts is
+as easy for it as one of 16, because it simply looks the key up. The SSM shows a clear capacity limit. With
+$N=16$ (8192 floats of state) it solves 16 pairs but not 32 (0.134); with $N=64$ (32{,}768 floats) it solves 16 and
+32 pairs but not 64 (0.053). Quadrupling the state moves the breaking point from between 16 and 32 pairs to between 32 and 64,
+which is the behaviour predicted by the fading-memory picture of Section~\ref{sec:theory}. Gated DeltaNet solves all three
+sizes, including 64 pairs (0.991), with 16{,}384 floats of state, half that of the SSM that fails. Its
+erase-then-write update stores associations far more economically than the SSM's additive accumulation. The
+steps needed to reach 90\% grow with the number of pairs for every recurrent model (DeltaNet: 1500, 2500, 6500),
+so harder recall is also slower to learn.
+
+\subsection{Efficiency on one GPU (RQ3)}
+Figure~\ref{fig:eff-layer} shows the training-time cost of one layer, Figure~\ref{fig:eff-decode} the cost of
+generating one token, and Table~\ref{tab:scan} compares the two implementations of the SSM scan.
+
+\begin{figure}[htbp]\centering
 \includegraphics[width=\linewidth]{figures/efficiency_layer}
-\caption{Training-time cost of one layer vs.\ sequence length (log--log). Attention uses PyTorch's fused
-SDPA (FlashAttention) kernel; the SSM and Gated DeltaNet use this project's unfused chunked PyTorch code.}
+\caption{Cost of one layer vs.\ sequence length on the RTX 4050 (log--log; $d_{\text{model}}=256$, batch 4,
+bfloat16). Attention uses PyTorch's fused scaled-dot-product (FlashAttention) kernel; the SSM and Gated DeltaNet use
+this project's unfused chunked PyTorch implementations.}
 \label{fig:eff-layer}
 \end{figure}
 
-\begin{figure}[h]\centering
+\begin{figure}[htbp]\centering
 \includegraphics[width=0.8\linewidth]{figures/efficiency_decode}
-\caption{Inference-time cost: per-token decode latency and the memory each sequence holds between tokens.}
+\caption{Generation: per-token latency and the memory each sequence keeps between tokens, vs.\ context length.}
 \label{fig:eff-decode}
 \end{figure}
 
-\begin{table}[h]\centering\small
+\begin{table}[htbp]\centering\small
 \input{tables/scan_backends}
-\caption{SSM scan only: chunked PyTorch vs.\ the forward-only Triton kernel (fp32, batch 4, 8 heads,
-$P=N=64$). Peak RTX 4050 Laptop memory bandwidth is about 192\,GB/s.}
+\caption{SSM scan only: chunked PyTorch vs.\ the forward-only Triton kernel (float32, batch 4, 8 heads,
+$P=N=64$). The peak memory bandwidth of the RTX 4050 Laptop GPU is about 192\,GB/s.}
 \label{tab:scan}
 \end{table}
-\todo{Interpret: (1) at every measured length the fused FlashAttention kernel beats our unfused scans;
-attention's forward time grows $\sim3\times$ per doubling from 4k (entering its quadratic regime) while the
-SSM's grows $2\times$, extrapolating to a crossover near 32k tokens -- beyond this GPU's memory for our
-implementation. Kernel quality matters as much as asymptotic complexity, which is why production SSMs
-ship fused kernels. (2) Memory: the chunked implementations materialise $L\times L$ decay masks and
-einsum intermediates, so they use more memory than FlashAttention here. (3) Decode: the KV cache grows
-$64\times$ (512\,KB$\to$32\,MB) while per-token latency rises only 17\%; at this scale decoding is bound by
-kernel-launch overhead, so the constant-size state wins on memory, not (yet) on latency. (4) Triton:
-1.3--1.5$\times$ faster and 4.8$\times$ less memory than chunked PyTorch, but only $\sim$9\,GB/s
-($\approx5\%$ of peak bandwidth): the time loop is sequential and only $b\cdot H\cdot P/B_P=64$ programs run,
-so the kernel is latency-bound -- the motivation for Mamba-2's matmul-based SSD algorithm.}
-\todo{Interpret every table in prose.}
+
+\paragraph{Training time.} At every measured length up to 16{,}384 tokens the attention layer is the fastest:
+its forward pass takes 31\,ms at 16k tokens against 56\,ms for the SSM and 276\,ms for Gated DeltaNet. The
+asymptotics are nevertheless visible. From 4k tokens on, attention's forward time grows by about $3\times$ per
+doubling of the length (3.2, 9.4, 31.2\,ms), entering its quadratic regime, while the SSM's grows by
+$2\times$ (14, 28, 56\,ms). Extrapolating these rates, the two cross near 32k tokens, a length at which our
+unfused implementation no longer fits in 6\,GB. The SSM's forward-plus-backward time grows faster than linearly
+beyond 4k tokens (86, 273, 948\,ms), which we attribute to memory pressure from the large intermediate tensors of
+the chunked PyTorch code: the SSM layer needs 2.7\,GB at 16k tokens against 0.5\,GB for attention.
+
+\paragraph{Generation.} The attention KV cache grows linearly with the context, from 512\,KB at 128 tokens to
+32\,MB at 8192 tokens per layer (batch 4), while the SSM and DeltaNet keep 512\,KB and 256\,KB regardless of
+context. Per-token latency, however, barely changes: attention takes 1.18\,ms at 128 tokens and 1.38\,ms at 8192.
+At this scale generation is dominated by the fixed overhead of launching many small GPU kernels, not by reading
+the cache, so the recurrent models win on memory but not yet on speed.
+
+\paragraph{The Triton kernel.} For long sequences the Triton kernel is $1.33$--$1.49\times$ faster than the
+chunked PyTorch scan and uses $4.3$--$4.8\times$ less memory, because it never materialises the chunk-level
+matrices. It reaches only about 9\,GB/s, roughly 5\% of the GPU's memory bandwidth. Section~\ref{sec:discussion}
+explains why.

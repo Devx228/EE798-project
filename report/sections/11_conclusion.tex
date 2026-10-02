@@ -1,4 +1,31 @@
 \section{Conclusion}
 \label{sec:conclusion}
-\todo{What was learned, main observations, strengths / limitations, future work (Triton backward
-kernel, Mamba-3 complex states, language-model scale).}
+
+This project asked what a fixed-size, fading memory costs a sequence model and what fixes it, using
+from-scratch implementations of attention, a selective SSM, Gated DeltaNet and two recent extensions, all trained
+on one laptop GPU.
+
+\paragraph{What was learned.} The two abilities studied fail for different reasons and are fixed by different
+means. State tracking is limited by \emph{expressivity}: with positive real transitions no model learns parity
+beyond the training length, a single change to negative eigenvalues makes the SSM solve it at 8$\times$ the
+training length (0.999), and DeltaProduct, whose transitions are products of two reflections, is the only model
+that learns the non-abelian group $S_3$ reliably (0.912 at 8$\times$ the training length, all seeds). Recall is
+limited by \emph{capacity}: the SSM breaks once the number of stored pairs outgrows its state, a larger state moves
+the breaking point, and the delta rule stores 64 pairs with half the state of an SSM that fails. Attention solves
+recall trivially but does not generalise on state tracking.
+
+\paragraph{Strengths and limitations.} The comparison is controlled (one codebase, matched state sizes, three
+seeds for state tracking), the algorithms are verified against reference recurrences, and the failure cases are
+backed by evidence including the learned weights themselves. The main limitations are the small scale, the
+synthetic tasks and a single seed for recall.
+
+\paragraph{The broader lesson.} Being able to represent a solution is not the same as learning it. The
+rotational SSM can represent counting modulo 3 but learns a shortcut; several models fit the training length
+perfectly without learning the rule; and a too-short training budget once ranked the models in the wrong order.
+Each of these was caught only by testing beyond the training distribution or by looking inside the model.
+
+\paragraph{Future work.} Natural next steps are a length curriculum or targeted initialisation to test whether
+the rotational SSM and DeltaProduct can be made to learn $\mathbb{Z}_3$; a chunked Triton kernel with a backward
+pass, to turn the linear-time recurrences into an actual speed advantage on the GPU; more seeds for the recall
+study; and hybrid models that combine a few attention layers for recall with DeltaProduct layers for state
+tracking, evaluated on natural language.

@@ -1,33 +1,85 @@
 \section{Implementation and Code Snippets}
 \label{sec:impl}
-% Guideline 2.7: meaningful snippets + explanation; state clearly what was written by you.
 
-\paragraph{Contributions and tools.} \todo{Required by the course guidelines (Sec.~5): state clearly which
-parts you did yourself and which tools you used. Check the course policy on AI assistants and disclose
-accordingly, e.g.\ that the code was developed with an AI coding assistant, and that you chose the
-experiments, ran them on your own GPU, verified the results and wrote the analysis. Be ready to explain every
-equation and code snippet in this report.}
+All models, tasks and kernels were implemented for this project in PyTorch and Triton
+\citep{tillet2019triton}; no external state-space or linear-attention library is used. The code is available
+at \url{https://github.com/Devx228/EE798-project}. The main files are \texttt{layers/ssm.py} (selective and
+rotational SSM), \texttt{layers/deltanet.py} (Gated DeltaNet and DeltaProduct), \texttt{layers/attention.py},
+\texttt{layers/triton\_scan.py}, \texttt{tasks/} (data generators), \texttt{train.py} and the experiment
+scripts. The code was written with the help of an AI coding assistant; the experiments were run on the
+author's own GPU, and all reported numbers come from those runs.
 
-All components were implemented from scratch in PyTorch (repository: \todo{URL}). No external
-SSM / linear-attention library is used. Correctness is established by unit tests that compare every
-chunked algorithm with its step-by-step recurrence in float64 (max error $\sim10^{-15}$) and every
-model's recurrent decoding with its parallel forward pass.
-
-\begin{lstlisting}[caption={Reference recurrence of the gated delta rule (\texttt{layers/deltanet.py}).}]
+\paragraph{Reference recurrence.} Listing~\ref{lst:delta} is the token-by-token form of
+\eqref{eq:delta}. It is slow, but it is the ground truth for testing the chunked algorithm.
+\begin{lstlisting}[caption={Reference gated delta rule (\texttt{layers/deltanet.py}).},label={lst:delta}]
 for t in range(T):
-    S = S * torch.exp(g[:, :, t])[..., None, None]          # decay: alpha_t
+    S = S * torch.exp(g[:, :, t])[..., None, None]          # decay: alpha_t * S
     v_old = torch.einsum("bhkv,bhk->bhv", S, k[:, :, t])    # what memory returns for k_t
     S = S + torch.einsum("bhk,bhv->bhkv", k[:, :, t],
                          beta[:, :, t, None] * (v[:, :, t] - v_old))  # erase + write
-    outs.append(torch.einsum("bhkv,bhk->bhv", S, q[:, :, t]))
+    outs.append(torch.einsum("bhkv,bhk->bhv", S, q[:, :, t]))         # o_t = S^T q_t
 \end{lstlisting}
-\todo{Explain line by line.}
+The first line applies the decay $\alpha_t=e^{g_t}$ to the whole state. The second reads the value currently
+stored under the key, $S^\top k_t$. The third adds $\beta_t k_t(v_t-S^\top k_t)^\top$, which is the
+gradient step of Section~\ref{sec:math}: with $\beta_t=1$ the old value is fully replaced. The last line
+reads the memory with the query.
 
-\begin{lstlisting}[caption={Negative-eigenvalue option in the SSM (\texttt{layers/ssm.py}).}]
-dt = F.softplus(dt_raw + self.dt_bias)
-a = torch.exp(-dt * torch.exp(self.A_log))    # a in (0, 1)
+\paragraph{Changing the eigenvalue range.} The negative-eigenvalue variant is a one-line change after the
+discretisation \eqref{eq:disc} (Listing~\ref{lst:neg}); for DeltaNet the analogous change is
+\texttt{beta = 2 * beta}.
+\begin{lstlisting}[caption={Decay of the selective SSM (\texttt{layers/ssm.py}).},label={lst:neg}]
+dt = F.softplus(dt_raw + self.dt_bias)        # step size Delta_t > 0
+a = torch.exp(-dt * torch.exp(self.A_log))    # a_t = exp(Delta_t * A), A < 0, so a_t in (0, 1)
 if self.neg_eigen:
-    a = 2.0 * a - 1.0                         # a in (-1, 1): the state can flip sign
+    a = 2.0 * a - 1.0                         # a_t in (-1, 1): the state can flip sign
 \end{lstlisting}
 
-\todo{Snippet + explanation of the Triton kernel inner loop, and of the MQAR generator.}
+\paragraph{Rotations as a data-dependent RoPE.} Equation \eqref{eq:rope} is implemented literally: the
+cumulative angle is a prefix sum, $B$ and $C$ are rotated by it, and the verified real scan does the rest.
+\begin{lstlisting}[caption={Rotational SSM (\texttt{layers/ssm.py}).},label={lst:rot}]
+def rotational_scan(x, a, theta, B, C, chunk_size=64):
+    phase = theta.cumsum(dim=1)                       # Phi_t = sum_{k<=t} theta_k
+    return ssd_scan_chunked(x, a, rotate_pairs(B, -phase), rotate_pairs(C, -phase), chunk_size)
+\end{lstlisting}
+
+\paragraph{DeltaProduct by interleaving.} Rather than writing a new kernel, the $n_h$ Householder steps of
+\eqref{eq:product} are laid out along the time axis: token $t$, sub-step $j$ becomes position $tn_h+j$.
+The decay is applied only at the first sub-step and the query only at the last, so the verified chunked
+delta rule computes DeltaProduct exactly.
+\begin{lstlisting}[caption={DeltaProduct via interleaving (\texttt{layers/deltanet.py}).},label={lst:prod}]
+q_x = q.new_zeros(b, T, n_h, H, d); q_x[:, :, -1] = q   # read memory after the last sub-step
+g_x = g.new_zeros(b, T, n_h, H);    g_x[:, :, 0] = g    # decay once per token
+o, S = delta_rule_chunked(*flatten(q_x, k, v, beta, g_x))  # sequence of length T * n_h
+o = o[:, :, n_h - 1 :: n_h]                               # one output per token
+\end{lstlisting}
+
+\paragraph{Triton scan kernel.} Listing~\ref{lst:triton} is the inner loop of the forward kernel. One GPU
+program handles one (sequence, head, block of $P$ channels) and keeps its $[B_P\times N]$ slice of the state
+in registers for the whole sequence, so the state never travels to global memory; only $x,a,B,C$ are read
+and $y$ is written.
+\begin{lstlisting}[caption={Inner loop of the Triton scan kernel (\texttt{layers/triton\_scan.py}).},label={lst:triton}]
+state = tl.zeros([BLOCK_P, BLOCK_N], dtype=tl.float32)
+for t in range(T):
+    a_t = tl.load(a_base + t * s_at)
+    x_t = tl.load(x_base + t * s_xt, mask=mask_p, other=0.0)
+    b_t = tl.load(b_base + t * s_bt, mask=mask_n, other=0.0)
+    c_t = tl.load(c_base + t * s_ct, mask=mask_n, other=0.0)
+    state = a_t * state + x_t[:, None] * b_t[None, :]     # h_t = a_t h_{t-1} + x_t B_t^T
+    y_t = tl.sum(state * c_t[None, :], axis=1)             # y_t = h_t C_t
+    tl.store(y_base + t * s_yt, y_t, mask=mask_p)
+\end{lstlisting}
+
+\paragraph{Data generation.} The MQAR generator writes $n$ key--value pairs at the start of the sequence and
+places each key once more as a query at a random later position, followed by its value; only query positions
+are scored. Keys are drawn without replacement from the lower half of the vocabulary and values from the
+upper half. The group-word generator samples uniform group elements and computes prefix products with a
+precomputed multiplication table (for $S_3$, the composition table of all six permutations).
+
+\paragraph{Verification.} A test suite (62 tests on the CPU plus the Triton kernel tests on the GPU) checks that (i) every chunked algorithm (SSM with positive
+and negative decays, rotational SSM, gated delta rule with $\beta\in(0,2)$, DeltaProduct) matches its
+token-by-token reference in float64 (maximum error $\approx10^{-15}$) for sequence lengths that are and are not
+multiples of the chunk length; (ii) the single-token decoding of every model reproduces its parallel forward
+pass; (iii) the Triton kernel matches the reference (run on the GPU, and on CPU in Triton's interpreter mode);
+and (iv) the task generators produce correct labels and the group tables satisfy the group axioms. Two
+further tests check the algebra behind the extensions: a rotation by $2\pi/3$ returns the state after three
+steps, and the product of two reflections is a rotation of order three when the keys are $60^\circ$ apart.

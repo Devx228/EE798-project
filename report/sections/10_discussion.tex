@@ -1,50 +1,90 @@
 \section{Analysis and Discussion}
 \label{sec:discussion}
-% Guideline 2.11: why good/bad, baselines, hyperparameters, failure cases, compute, limitations. Ablations.
-\paragraph{Failure case 1: recall beyond state capacity.} \todo{}
-\paragraph{Failure case 2: parity with positive decays.} \todo{}
-\paragraph{Failure case 3: expressible but not learned (rotational SSM on $\mathbb{Z}_3$).}
-\todo{Rewrite in own words. Evidence: the rotational SSM can represent $\mathbb{Z}_3$ exactly (unit
-test: $\theta=2\pi/3$ returns the state after 3 steps). Trained at length 16 / 32 / 64 it reaches
-1.000 / 0.995 / 0.719 at its training length (Table~\ref{tab:rotation-length}); at 64 two of three seeds
-fail. No configuration generalises: at length 512 all are at 0.38--0.43 (chance 0.33). Reading the
-layer-1 angles off the weights (Fig.~\ref{fig:rotation-angles}) shows the learned rotations are not
-multiples of $120^\circ$, tokens 1 and 2 receive nearly the \emph{same} angle in every pair (e.g.\
-$-136.7^\circ$ vs.\ $-134.8^\circ$), so the rotation cannot even distinguish them, and part of the memory
-decays (0.63--1.00). The network learned a short-horizon shortcut rather than the group rotation (GPU
-checkpoint, training length 16, seed 0: 1.000 at length 16, 0.544 at 64). Hypothesis for the length dependence: the loss depends on
-$\cos(k\theta)$ for $k\le T$, so its landscape in $\theta$ oscillates faster as $T$ grows.}
 
-\paragraph{Failure case 4: $\mathbb{Z}_3$ resists every model, although $S_3\supset\mathbb{Z}_3$ does not.}
-\todo{DeltaProduct$_2$ ($\beta\in(0,2)$) generalises on $S_3$ (0.91 at 512, all seeds) yet not on
-$\mathbb{Z}_3$ (0.51), even though $\mathbb{Z}_3$ is the rotation subgroup of $S_3$. Tentative
-explanation, to be stated as a hypothesis: in $S_3$ the transpositions can be implemented by single exact
-reflections ($\beta\to2$, a saturating parametrisation), and the 3-cycles then arise as their products;
-in $\mathbb{Z}_3$ every non-identity token must itself be a rotation by exactly $\pm120^\circ$, which needs
-an exact interior angle between two keys. Same pattern as negative eigenvalues vs.\ rotation angles.}
+\paragraph{Why the methods perform as they do.} The results follow the two mechanisms of
+Section~\ref{sec:theory} closely. For \emph{state tracking} what matters is which transitions the recurrence can
+express, not how large the state is: all recurrent models had the same 8192-float state, and the outcome was
+decided by the eigenvalue range and by whether the transition can be non-diagonal. For \emph{recall} what matters
+is how much the state can hold and how efficiently it is used: attention never runs out of memory, the SSM breaks
+at a point that moves with its state size, and the delta rule postpones the break by overwriting instead of
+accumulating. No single recurrent model is best at both, and attention is best at recall but fails to
+generalise on state tracking. This is the empirical case for the hybrid architectures used in practice.
 
-\begin{figure}[h]\centering
-\includegraphics[width=0.5\linewidth]{figures/rotation_angles}
-\caption{Learned layer-1 rotation angles of the rotational SSM on $\mathbb{Z}_3$, relative to token 0.
-Dashed lines: the $\pm120^\circ$ rotations that solve the task, which would require token 1 and token 2
-on opposite dashed lines within the same pair. GPU checkpoint, training length 16, seed 0.}
-\label{fig:rotation-angles}
-\end{figure}
+\paragraph{Failure case 1: recall beyond state capacity.} The SSM with $N=16$ solves 16 pairs (0.991) but reaches
+only 0.134 with 32 pairs, and the $N=64$ model fails at 64 pairs (0.053). The failure is abrupt rather than
+gradual, and its position moves with the state size, which identifies capacity as the cause. A caveat: ``failed
+within 20{,}000 steps'' bounds what was learned, not what is learnable, and one seed was used per configuration.
+That the breaking point moves monotonically with $N$ supports the capacity explanation over an optimisation
+accident.
 
-\paragraph{Methodology lesson: a training budget that is too short ranks models wrongly.}
-\todo{Rewrite in own words. First recall sweep (results/recall\_capacity\_v1: length 512, vocabulary 4096,
-4k steps): even attention stayed at 12--30\% with 8 pairs and accuracy was non-monotonic in the number
-of pairs (SSM $N{=}64$: 41\% at 8 pairs, 99\% at 16). Recall is learned in a sudden jump, so a fixed small
-budget measures \emph{whether a run jumped in time}. Calibration (16 pairs, length 256, up to 20k steps,
-early stopping) gives every model $\ge$99\%, with steps-to-90\%: attention + short conv 500, Gated
-DeltaNet 1500, SSM 5500, plain attention 6500. A short causal convolution, which supplies the previous
-token for free, makes attention learn the lookup $\sim13\times$ faster; we therefore use it as the
-attention baseline for the capacity sweep.}
+\paragraph{Failure case 2: shortcuts that fit the training length.} Gated DeltaNet with $\beta\in(0,1)$ reaches
+0.997 on parity at length 64 but only 0.586 at 512. By the proposition of Section~\ref{sec:math} its transitions
+cannot implement a sign flip, so its near-perfect training-length accuracy must come from a solution that exploits
+the limited length, for example by counting within a bounded window. The same holds for the Transformer on
+$\mathbb{Z}_3$ (0.991 vs.\ 0.422). In-distribution accuracy alone would have suggested these models learned the
+task; only the length-generalisation test reveals otherwise.
 
-\paragraph{Hyperparameter sensitivity.} \todo{Attention head width and learning rate on MQAR
-(first observation: one 64-dim head learns the lookup, 2--4 narrower heads stall near 53\%).}
-\paragraph{Ablations.} \todo{state size $N$, chunk size (speed only), short convolution on/off.}
-\paragraph{Computational cost.} \todo{Where the linear-time mixers win on the RTX 4050, and where
-attention (FlashAttention via SDPA) is still faster at short lengths; roofline analysis of the Triton
-kernel.}
-\paragraph{Limitations.} \todo{Small scale, synthetic tasks, single GPU, forward-only kernel.}
+\paragraph{Failure case 3: expressible but not learned (rotational SSM on $\mathbb{Z}_3$).} The rotational SSM can
+represent $\mathbb{Z}_3$ exactly; a unit test confirms that a rotation by $2\pi/3$ returns the state after three
+steps. Yet training never finds this solution. It fits short sequences (1.000 at length 16), becomes unreliable at
+length 64 (0.719, two of three seeds fail), and never generalises (at most 0.43 at 512). The learned weights
+(Figure~\ref{fig:rotation-angles}) show why: the angles are not multiples of $120^\circ$, tokens 1 and 2 receive
+nearly identical angles, and part of the memory decays, so the network built a short-range shortcut. We see two
+reasons why gradient descent struggles here. First, the loss depends on the angle $\theta$ through terms like
+$\cos(k\theta)$ for all $k\le T$, so the loss surface in $\theta$ oscillates more rapidly the longer the training
+sequences are; this matches the drop in training-length accuracy from 1.000 to 0.719 as $T$ grows from 16 to 64.
+Second, the target angle $2\pi/3$ is an interior value that must be hit exactly, because any error accumulates over
+the sequence. In contrast, a sign flip is reached by pushing the decay towards $-1$, and a reflection by pushing
+$\beta$ towards 2; these are saturating parametrisations that gradient descent approaches exponentially fast.
+
+\paragraph{Failure case 4: $\mathbb{Z}_3$ resists every model, although $S_3$ does not.} DeltaProduct with
+$\beta\in(0,2)$ generalises on $S_3$ (0.912 at length 512) but not on $\mathbb{Z}_3$ (0.511), even though
+$\mathbb{Z}_3$ is a subgroup of $S_3$ (its rotations). We offer a tentative explanation in line with failure case 3.
+In $S_3$, the three transpositions can be implemented by single exact reflections ($\beta\to 2$, saturating), and
+the 3-cycles then arise automatically as products of two such reflections. In $\mathbb{Z}_3$, every non-identity
+token must itself be a rotation by exactly $\pm120^\circ$, which requires the two keys of the token to be at
+exactly $60^\circ$ to each other, an interior value again. Testing this hypothesis, for example by initialising
+the keys at the required angle or by training with a length curriculum, is left for future work.
+
+\paragraph{Methodology lesson: an insufficient training budget ranks models wrongly.} Our first recall sweep
+(length 512, vocabulary 4096, 4000 steps) produced unusable results: even attention reached only 0.12--0.30
+with 8 pairs, and accuracy was non-monotonic in the number of pairs (e.g.\ the $N=64$ SSM scored 0.41 with 8 pairs
+but 0.99 with 16). Recall is learned in a sudden jump after a plateau, so a small fixed budget measures whether a
+run happened to jump in time, not what the model can do. Checks on the CPU excluded two other explanations (a
+short convolution for attention, a smaller vocabulary). A calibration run with up to 20{,}000 steps and early
+stopping then gave every model at least 99\% on 16 pairs, with steps-to-90\% of 500 (attention + short conv), 1500
+(Gated DeltaNet), 5500 (SSM) and 6500 (plain attention). The final recall study uses this budget.
+
+\paragraph{Hyperparameter sensitivity.} Three sensitivities stood out. (i) A short causal convolution, which gives
+each layer direct access to the previous few tokens, makes attention learn recall about 13$\times$ faster (500 vs.\
+6500 steps); without it attention must first learn a separate previous-token mechanism. (ii) In a preliminary CPU
+experiment, attention with one 64-dimensional head reached 91\% on a small recall task while the same model with
+two or four narrower heads stalled near 53\%; we therefore used a single head for recall. (iii) The random seed
+matters for the harder state-tracking cases: Gated DeltaNet with $\beta\in(0,2)$ on $S_3$ ranges from 0.28 to 0.83
+at length 512 across seeds, and the rotational SSM solves parity on one seed out of three. Reporting three seeds
+was therefore necessary; a single seed would have supported opposite conclusions.
+
+\paragraph{Ablations.} The experiments double as ablations of single mechanisms with everything else fixed: the
+eigenvalue range (SSM and DeltaNet, Table~\ref{tab:state}), rotational transitions, one versus two Householder steps
+per token, the training length of the rotational SSM (Table~\ref{tab:rotation-length}), the state size of the SSM
+(Table~\ref{tab:recall}) and the short convolution in attention.
+
+\paragraph{Computational requirements.} Every model trains on a 6\,GB laptop GPU in minutes. At the lengths that
+fit, however, the fused FlashAttention kernel \citep{dao2022flashattention} beats our linear-time layers, whose
+asymptotic advantage would only show beyond roughly 32k tokens. The quality of the GPU kernel matters as much as
+the complexity class, which is why production SSMs ship hand-written kernels. Our Triton kernel illustrates the
+difficulty. It is faster and leaner than the PyTorch code but reaches only about 5\% of the GPU's memory
+bandwidth. It is neither compute-bound nor bandwidth-bound but latency-bound: the loop over time is strictly
+sequential and only $b\cdot H\cdot P/B_P = 64$ programs run in parallel, too few to hide memory latency on 20
+streaming multiprocessors. This is precisely the motivation for Mamba-2's chunked algorithm, which turns most of
+the scan into matrix multiplications that can use tensor cores; a Triton version of Algorithm~\ref{alg:scan} is
+the natural next step. In generation, the recurrent models' constant state saves memory (32\,MB vs.\ 512\,KB per
+layer at 8k tokens), but per-token latency at batch 4 is dominated by kernel-launch overhead.
+
+\paragraph{Limitations.} The models are small (two layers, under half a million parameters) and the tasks are
+synthetic, so the results characterise mechanisms rather than language-modelling quality. Recall results use one
+seed. The Triton kernel implements only the forward pass, so training used the PyTorch chunked algorithm. The
+benchmarks were taken on a laptop GPU whose clock varies with load and temperature; the scan table therefore
+reports only lengths of at least 4k tokens, where timings were stable. Finally, our rotational SSM uses a
+simplified version of the Mamba-3 parametrisation (angles from a separate projection, Euler-style input term), and
+may behave differently from the original.

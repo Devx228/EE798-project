@@ -1,20 +1,61 @@
 \section{Introduction and Motivation}
 \label{sec:intro}
-% Guideline 2.2: problem, importance, where useful, challenges, scope.
-\todo{Motivate: softmax attention costs $O(T^2)$ time and an $O(T)$ KV cache at inference. Linear-time
-recurrent mixers (Mamba-2/3, Gated DeltaNet, KDA) are now used in production hybrids (Qwen3-Next,
-Kimi Linear, Granite 4.0, Nemotron-H) \citep{kimi2025linear,dao2024ssd,yang2025gated}.}
 
-\todo{The price: all of the past is compressed into a fixed-size state (``fading memory''). Which
-pattern-recognition abilities survive this compression, which do not, and why?}
+Self-attention \citep{vaswani2017attention} compares every token with every earlier token. This gives the
+Transformer an exact, content-addressable memory of its entire context, but at a price: training costs
+$O(T^2)$ time in the sequence length $T$, and generation must keep a key--value (KV) cache whose size
+grows linearly with the context. For long contexts the KV cache, not the arithmetic, becomes the
+bottleneck of deployment.
+
+A family of \emph{linear recurrent} sequence models removes this cost. State-space models (SSMs) such as
+Mamba \citep{gu2023mamba} and Mamba-2 \citep{dao2024ssd}, and linear-attention models such as Gated
+DeltaNet \citep{yang2025gated}, compress the whole past into a state of fixed size, updated once per token.
+Training runs in $O(T)$ with a parallel scan, and generation needs constant memory per sequence. These
+layers are no longer a research curiosity: recent production models are hybrids that replace most of
+their attention layers with them, for example Kimi Linear \citep{kimi2025linear}, which interleaves three
+delta-rule layers with every attention layer.
+
+The price of a fixed-size state is that the memory must \emph{fade}: information is compressed, decayed
+and overwritten. Which pattern-recognition abilities survive this compression, and which do not, is the
+question of this project. Two abilities are particularly revealing.
+\begin{itemize}
+  \item \textbf{Associative recall}: storing many key--value facts and retrieving one by its key. Attention
+        does this by direct lookup; a recurrent model must fit all facts into its state.
+  \item \textbf{State tracking}: maintaining a running summary that changes with every input, such as the
+        parity of a bit string or the composition of a sequence of permutations. Here the question is not
+        how much the state can hold, but which updates the recurrence can express at all.
+\end{itemize}
+Both are pattern-recognition problems in the classical sense: a sequence must be mapped to a label, and
+the model must discover a rule from examples rather than memorise them. We probe them with controlled
+synthetic tasks, which isolate a single ability and allow testing on sequences longer than any seen in
+training, the cleanest check that a rule rather than a shortcut was learned.
 
 \paragraph{Research questions.}
 \begin{enumerate}
-  \item[\textbf{RQ1}] How much associative recall can a fixed-size state support?
-  \item[\textbf{RQ2}] Which state transitions can track state (parity, modular counting, permutations)?
-  \item[\textbf{RQ3}] How many attention layers does a hybrid need, and where should they go?
-  \item[\textbf{RQ4}] What does the linear-time mixer buy in latency and memory on a consumer GPU?
+  \item[\textbf{RQ1}] How much associative recall can a fixed-size state support, and how does this depend
+        on the size of the state and on the update rule?
+  \item[\textbf{RQ2}] Which state transitions can track state? We test parity ($\mathbb{Z}_2$), counting
+        modulo 3 ($\mathbb{Z}_3$) and the non-abelian permutation group $S_3$, the negative-eigenvalue fix
+        of \citet{grazzi2025unlocking}, and two recent extensions: complex-valued (rotational) transitions
+        in the spirit of Mamba-3 \citep{mamba3} and products of Householder matrices
+        (DeltaProduct, \citealp{siems2025deltaproduct}).
+  \item[\textbf{RQ3}] What does the linear-time recurrence buy in latency and memory on a consumer GPU, and
+        how much does the quality of the GPU kernel matter?
 \end{enumerate}
 
-\paragraph{Contributions.} \todo{List: from-scratch implementations with verified parallel forms; a
-Triton scan kernel; controlled experiments on one GPU; failure analysis.}
+\paragraph{Contributions.}
+\begin{itemize}
+  \item From-scratch implementations of a selective SSM, Gated DeltaNet, a rotational SSM, DeltaProduct
+        and a Transformer baseline. Each recurrent mixer has a token-by-token reference and a
+        chunkwise-parallel training algorithm, verified against each other to float64 precision, and
+        constant-memory decoding verified against the parallel forward pass.
+  \item A Triton GPU kernel for the SSM scan and an efficiency study on an RTX~4050 laptop GPU.
+  \item A controlled comparison on state tracking (8 models $\times$ 3 groups $\times$ 3 seeds) and
+        associative recall, all on one 6\,GB GPU.
+  \item An analysis of four failure cases, including a direct inspection of learned weights showing that a
+        model which \emph{can} represent the solution learned a shortcut instead.
+\end{itemize}
+
+\paragraph{Scope.} All experiments use small models (0.2--0.44M parameters, two layers) on synthetic
+tasks. The aim is not state-of-the-art accuracy but a clean, mechanistic comparison whose conclusions can
+be traced back to the mathematics of each recurrence.

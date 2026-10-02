@@ -1,24 +1,53 @@
 \section{Background and Related Work}
 \label{sec:background}
-% Guideline 2.3: NOT a chronological list -- organise by idea and relate each to this project.
 
-\paragraph{From attention to linear recurrences.} \todo{Attention \citep{vaswani2017attention};
-linear attention as an RNN \citep{katharopoulos2020transformers}; fast-weight view
-\citep{schlag2021linear}.}
+\paragraph{From attention to linear recurrences.} Softmax attention computes, for every query, a
+normalised weighting over all previous keys \citep{vaswani2017attention}. \citet{katharopoulos2020transformers}
+observed that replacing the softmax kernel by a feature-map dot product turns causal attention into a
+recurrence: the sum $\sum_j \phi(k_j) v_j^\top$ can be accumulated token by token in a matrix-valued state,
+so a Transformer becomes an RNN with $O(1)$ cost per token. \citet{schlag2021linear} interpreted this state
+as a set of \emph{fast weights} written by the network itself, and pointed out its weakness: purely
+additive writes cannot overwrite old associations, so the memory fills up with interference. This
+observation motivates the delta rule discussed below.
 
-\paragraph{Structured and selective state-space models.} \todo{S4 \citep{gu2022s4}: LTI, convolutional
-view. Mamba \citep{gu2023mamba}: input-dependent (selective) parameters. Mamba-2 / SSD
-\citep{dao2024ssd}: scalar decay, duality with masked attention, chunkwise algorithm. Mamba-3
-\citep{mamba3}: trapezoidal discretisation, complex states, MIMO.}
+\paragraph{Structured and selective state-space models.} SSMs start from a continuous linear system
+$\dot h = Ah + Bx$, $y = Ch$, discretised in time. S4 \citep{gu2022s4} made such models trainable on long
+sequences by structuring $A$ and computing the output as a long convolution, which requires the system to
+be time-invariant. Mamba \citep{gu2023mamba} gave up time invariance: the step size $\Delta_t$ and the
+matrices $B_t, C_t$ depend on the current input, so the model can decide what to store and what to forget
+(\emph{selectivity}). The price is that the convolution view is lost and a scan is needed. Mamba-2
+\citep{dao2024ssd} restricted $A$ to a scalar per head and showed that the resulting model is exactly a
+form of masked linear attention (\emph{state-space duality}), which yields a chunkwise algorithm built from
+matrix multiplications. Mamba-3 \citep{mamba3} adds a more accurate (trapezoidal) discretisation,
+complex-valued state transitions, which it shows are equivalent to a data-dependent rotary embedding, and a
+multi-input multi-output form designed for fast inference. This project implements the Mamba-2 recurrence
+and a rotational variant inspired by Mamba-3.
 
-\paragraph{Delta-rule models.} \todo{DeltaNet and its chunkwise algorithm \citep{yang2024deltanet};
-Gated DeltaNet \citep{yang2025gated}; KDA / Kimi Linear \citep{kimi2025linear}.}
+\paragraph{Delta-rule models.} DeltaNet replaces the additive write of linear attention with the delta
+rule: before writing a value under a key, it first removes what the memory currently returns for that
+key. \citet{yang2024deltanet} made this trainable at scale with a chunkwise algorithm based on a compact
+representation of products of Householder-like matrices. Gated DeltaNet \citep{yang2025gated} adds a
+Mamba-2-style decay gate, so the model can both overwrite precisely and forget globally. Kimi Delta
+Attention \citep{kimi2025linear} refines the gate to be channel-wise and is deployed in a 48B-parameter
+hybrid model.
 
-\paragraph{Known limitations.} \todo{Recall and copying \citep{arora2024zoology,jelassi2024repeat};
-state tracking and the ``illusion of state'' \citep{merrill2024illusion}; negative eigenvalues
-\citep{grazzi2025unlocking}; rotations via complex states \citep{mamba3} and products of Householder matrices (DeltaProduct) \citep{siems2025deltaproduct}; attention layers carry
-retrieval in hybrids \citep{michalak2025some}; Mamba unnecessary for short-sequence vision
-\citep{yu2025mambaout}.}
+\paragraph{What fixed-size memories cannot do.} Two lines of work characterise the limits of these
+models, and they correspond to the two abilities studied here. For \emph{recall}, \citet{arora2024zoology}
+introduced the multi-query associative recall (MQAR) task and showed that the gap between efficient models
+and attention in language modelling is largely explained by recall; \citet{jelassi2024repeat} proved and
+showed empirically that Transformers copy long strings that fixed-state models cannot; and
+\citet{michalak2025some} found that in hybrid production models retrieval is carried entirely by the
+attention layers. For \emph{state tracking}, \citet{merrill2024illusion} argued that diagonal SSMs, like
+Transformers, cannot express inherently sequential computations such as composing permutations.
+\citet{grazzi2025unlocking} identified a simple culprit: transition eigenvalues restricted to $[0,1]$ make
+even parity impossible, and extending them to $[-1,1]$ fixes parity for Mamba and DeltaNet. DeltaProduct
+\citep{siems2025deltaproduct} goes further by applying several Householder steps per token, which can
+represent rotations and general permutations.
 
-\paragraph{Where this project sits.} \todo{Unifies these three families in one codebase under one
-training protocol, and reproduces two limitations and their fixes at small scale.}
+\paragraph{Where this project sits.} Prior studies typically examine one model family and one ability.
+Here the three families (attention, diagonal SSMs, delta-rule models) share one codebase, one training
+protocol and one GPU, and are tested on both abilities. This makes the comparison controlled: differences
+can be attributed to the recurrence itself. We reproduce the negative-eigenvalue result, extend it to
+rotations and Householder products, and report where each mechanism stops working. The conclusion
+of \citet{yu2025mambaout}, that Mamba is unnecessary for short, non-sequential vision tasks, is consistent
+with our framing: the recurrence matters precisely for long, sequential problems.

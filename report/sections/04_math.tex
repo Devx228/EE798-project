@@ -1,114 +1,179 @@
 \section{Mathematical Formulation}
 \label{sec:math}
-% Guideline 2.5 (mandatory): define every symbol; derive, don't copy.
-% The equations below match the code exactly; rewrite the surrounding explanation in your own words.
 
-\subsection{Task as a sequence-labelling problem}
-A model $f_\theta$ maps a token sequence $x_{1:T}$ to per-position distributions over a vocabulary
-$\mathcal{V}$. With a mask $m_t\in\{0,1\}$ marking scored positions, training minimises
+\subsection{Tasks as sequence labelling}
+A model $f_\theta$ with parameters $\theta$ maps a token sequence $x_{1:T}\in\mathcal{V}^T$ over a vocabulary
+$\mathcal{V}$ to one probability distribution $p_\theta(\cdot\mid x_{1:t})$ per position $t$, where position $t$
+may only depend on tokens $1,\dots,t$ (causality). Each training example also carries labels $y_t$ and a mask
+$m_t\in\{0,1\}$ marking which positions are scored. Training minimises the masked cross-entropy
 \begin{equation}
   \mathcal{L}(\theta) = -\frac{1}{\sum_{n,t} m^{(n)}_t}\sum_{n=1}^{N}\sum_{t=1}^{T} m^{(n)}_t
-  \log p_\theta\!\left(y^{(n)}_t \mid x^{(n)}_{1:t}\right).
+  \log p_\theta\!\left(y^{(n)}_t \mid x^{(n)}_{1:t}\right),
+  \label{eq:loss}
 \end{equation}
-\todo{Explain $N$, $y_t$, the causal conditioning, and why only masked positions count.}
+over a mini-batch of $N$ sequences indexed by $n$. In state tracking every position is scored ($m_t=1$); in
+recall only the positions where a query key appears are scored, so the model is not rewarded for predicting
+random context tokens. Accuracy is the fraction of scored positions where $\arg\max p_\theta = y_t$.
 
 \subsection{Causal softmax attention}
+For one head with query, key and value vectors $q_t,k_t,v_t\in\R^d$ (linear projections of the input,
+rotated by rotary position embeddings \citep{su2021roformer}),
 \begin{equation}
-  o_t = \sum_{j\le t} \frac{\exp(q_t^\top k_j/\sqrt{d})}{\sum_{i\le t}\exp(q_t^\top k_i/\sqrt{d})}\, v_j .
+  o_t = \sum_{j\le t} \alpha_{tj} v_j, \qquad
+  \alpha_{tj} = \frac{\exp(q_t^\top k_j/\sqrt{d})}{\sum_{i\le t}\exp(q_t^\top k_i/\sqrt{d})} .
+  \label{eq:attn}
 \end{equation}
-\todo{Cost $O(T^2 d)$ for training; decoding reads a KV cache of $2Td$ numbers per layer and head.}
+The weights $\alpha_{tj}$ form a probability distribution over past positions, so attention can place all
+its weight on the one position whose key matches the query. Computing all outputs costs $O(T^2 d)$; generating
+token $t$ requires all past keys and values, a cache of $2td$ numbers per head.
 
 \subsection{Selective state-space model}
-Continuous-time system $\dot h(\tau) = A h(\tau) + B x(\tau)$, $y = C h$. Zero-order-hold
-discretisation with an input-dependent step $\Delta_t$ and scalar $A=-e^{\alpha}<0$ per head gives
+\paragraph{Discretisation.} Each head of the SSM is a linear system $\dot h(\tau) = A h(\tau) + x(\tau) B^\top$,
+$y = hC$ with a scalar $A=-e^{\alpha}<0$ ($\alpha$ learned). Holding the input constant over a step of length
+$\Delta_t$ (zero-order hold) gives the decay $a_t = \exp(\Delta_t A)$, and approximating the input integral by
+$\Delta_t x_t B_t^\top$ (as in Mamba-2) gives the recurrence
 \begin{align}
-  a_t &= \exp(\Delta_t A) \in (0,1), \qquad \Delta_t = \operatorname{softplus}(w^\top u_t + b),\\
-  h_t &= a_t\, h_{t-1} + (\Delta_t x_t)\, B_t^\top, \qquad h_t \in \R^{P\times N},\\
-  y_t &= h_t C_t + D x_t .
+  a_t &= \exp(\Delta_t A) \in (0,1), \qquad \Delta_t = \operatorname{softplus}(w^\top u_t + b), \label{eq:disc}\\
+  h_t &= a_t\, h_{t-1} + (\Delta_t x_t)\, B_t^\top, \qquad h_t \in \R^{P\times N}, \label{eq:ssm}\\
+  y_t &= h_t C_t + D x_t . \label{eq:ssm-out}
 \end{align}
-\todo{Define $P$ (head channels), $N$ (state size), $B_t, C_t\in\R^N$. Explain the Euler-style
-approximation of the input term used by Mamba-2 and what Mamba-3's trapezoidal rule changes.}
+Here $u_t$ is the input to the layer, $x_t\in\R^P$ is the part of it routed to this head ($P$ channels),
+$B_t, C_t\in\R^N$ are input-dependent projections onto an $N$-dimensional state, and $D$ is a learned skip
+connection. The state of one head therefore has $PN$ entries, and selectivity enters through the
+input dependence of $\Delta_t$, $B_t$ and $C_t$.
 
-\paragraph{Unrolled (dual) form.} Unrolling the recurrence,
+\paragraph{Unrolled (dual) form.} Applying \eqref{eq:ssm} repeatedly from $h_0=0$ gives, by induction on $t$,
+$h_t = \sum_{j\le t}\big(\prod_{k=j+1}^{t} a_k\big)\,\Delta_j x_j B_j^\top$. Indeed, if this holds for $t-1$,
+then $a_t h_{t-1}$ multiplies every product by $a_t$, extending it to $k=j+1,\dots,t$, and the new term
+$\Delta_t x_t B_t^\top$ is the $j=t$ summand with an empty product. Substituting into \eqref{eq:ssm-out},
 \begin{equation}
   y_t = \sum_{j\le t} \underbrace{\Big(\prod_{k=j+1}^{t} a_k\Big)}_{\text{decay mask } L_{tj}}
-        (C_t^\top B_j)\, \Delta_j x_j ,
+        \underbrace{(C_t^\top B_j)}_{\text{score}}\, \Delta_j x_j \;+\; D x_t ,
+  \label{eq:dual}
 \end{equation}
-i.e.\ causal attention with scores $C_t^\top B_j$ and a multiplicative decay mask \citep{dao2024ssd}.
-\todo{Derive this by induction.}
+which is causal attention with scores $C_t^\top B_j$ and a multiplicative decay mask instead of a softmax
+\citep{dao2024ssd}. This equivalence is what makes a parallel algorithm possible.
 
-\paragraph{Chunkwise algorithm.} \todo{Split $T$ into chunks of length $L$. Within a chunk use the dual
-form ($O(L^2)$); across chunks carry $h$ with one recurrence step per chunk. Total cost
-$O(T L N P)$; show the three terms (intra-chunk output, chunk state, inter-chunk contribution) and how
-negative $a_k$ are handled via $\log|a_k|$ and a sign product.}
+\paragraph{Chunkwise algorithm.} Split the sequence into chunks of length $L$. Inside a chunk, \eqref{eq:dual}
+is evaluated as a masked matrix product ($O(L^2)$ per chunk). Across chunks, only the state needs to be
+carried: if $H_c$ is the state entering chunk $c$, then
+\begin{align}
+  y_t &= \underbrace{\textstyle\sum_{j\in c,\,j\le t} L_{tj}(C_t^\top B_j)\Delta_j x_j}_{\text{intra-chunk}}
+      + \underbrace{\Big(\textstyle\prod_{k\in c,\,k\le t} a_k\Big) H_c C_t}_{\text{from earlier chunks}}, \label{eq:chunk}\\
+  H_{c+1} &= \Big(\textstyle\prod_{k\in c} a_k\Big) H_c + \textstyle\sum_{j\in c} L_{\mathrm{end},j}\,\Delta_j x_j B_j^\top . \nonumber
+\end{align}
+With $T/L$ chunks the total cost per head is $O\big(T(L(N+P) + NP)\big)$: linear in $T$. Products of decays
+are computed in log space; to allow negative $a_k$ we accumulate $\log|a_k|$ and the sign $\prod_k
+\operatorname{sgn}(a_k)$ separately.
 
-\paragraph{Negative eigenvalues.} With $a_t\mapsto 2a_t-1\in(-1,1)$ the state can flip sign.
-\todo{Prove: a 1-D state with $a_t=-1$ on input 1 and $a_t=1$ on input 0 computes parity; with
-$a_t\in(0,1)$ the sign of $h_t$ can never alternate (sketch of \citet{grazzi2025unlocking}).}
+\paragraph{Negative eigenvalues.} The remapping $a_t\mapsto 2a_t-1\in(-1,1)$ \citep{grazzi2025unlocking} lets a
+transition flip the sign of the state. The following statement explains why this is necessary for parity.
+
+\begin{proposition}
+Consider a stack of layers whose recurrences have real diagonal transitions in $[0,1)$ and whose other
+operations are continuous and act on each token or on a fixed finite window of tokens (MLPs, normalisation,
+short convolutions). Feed the input $1,1,1,\dots$. Then every layer's state
+converges, so the output becomes constant, whereas the parity of the prefix alternates
+$1,0,1,0,\dots$. With finite precision the model therefore cannot output parity for long inputs.
+\end{proposition}
+\emph{Sketch.} With a constant input, the first layer's per-token quantities $a_t=a$ and $\Delta_t x_t B_t^\top = c$
+are constant, so $h_t = a h_{t-1} + c$, which converges monotonically to $c/(1-a)$ for $a\in[0,1)$: it never
+oscillates. Hence the first layer's output converges, so the input of the second layer converges, and the
+argument repeats layer by layer. With $a=-1$, instead, $h_t = -h_{t-1}+c$ alternates between $c$ and $0$,
+which is exactly parity. $\square$
 
 \subsection{Gated delta rule}
-With $\alpha_t\in(0,1]$, $\beta_t\in(0,1)$ (or $(0,2)$) and $\lVert k_t\rVert=1$,
+Each head of Gated DeltaNet keeps a matrix $S_t\in\R^{d_k\times d_v}$ and receives a query $q_t$, a unit-norm key
+$k_t$ ($\lVert k_t\rVert=1$), a value $v_t$, a decay $\alpha_t=e^{g_t}\in(0,1]$ and a write strength
+$\beta_t\in(0,1)$:
 \begin{align}
-  S_t &= \alpha_t\,(I - \beta_t k_t k_t^\top)\, S_{t-1} + \beta_t\, k_t v_t^\top, \qquad S_t\in\R^{d_k\times d_v},\\
-  o_t &= S_t^\top q_t .
+  S_t &= \alpha_t\,(I - \beta_t k_t k_t^\top)\, S_{t-1} + \beta_t\, k_t v_t^\top, \label{eq:delta}\\
+  o_t &= S_t^\top q_t . \nonumber
 \end{align}
-\todo{Show this is one SGD step (learning rate $\beta_t$) on $\tfrac12\lVert S^\top k_t - v_t\rVert^2$
-after decaying by $\alpha_t$. Eigenvalues of $I-\beta_t k_t k_t^\top$: $1-\beta_t$ along $k_t$ and 1
-elsewhere.}
+\emph{Interpretation as one step of online regression.} Let $S'=\alpha_t S_{t-1}$. The gradient of
+$\ell(S)=\tfrac12\lVert S^\top k_t - v_t\rVert^2$ with respect to $S$ is $k_t(S^\top k_t - v_t)^\top$, so
+one gradient step with learning rate $\beta_t$ is
+$S' - \beta_t k_t(S'^\top k_t - v_t)^\top = (I-\beta_t k_t k_t^\top)S' + \beta_t k_t v_t^\top$, which is
+\eqref{eq:delta}. With $\beta_t=1$ the memory afterwards returns exactly $v_t$ for the key $k_t$.
 
-\paragraph{Chunkwise (UT-transform) form.} Let $\gamma_i=\sum_{k\le i}\log\alpha_k$ inside a chunk and
-$\Gamma_i = e^{\gamma_i}$. The vectors actually written, $u_i=\beta_i(v_i-\alpha_i S_{i-1}^\top k_i)$,
-solve the unit lower-triangular system
+\emph{Eigenvalues.} The matrix $I-\beta_t k_tk_t^\top$ has eigenvalue $1-\beta_t$ in the direction $k_t$ and
+eigenvalue 1 on the orthogonal complement. With $\beta_t\in(0,1)$ all eigenvalues lie in $(0,1]$; the
+negative-eigenvalue variant uses $\beta_t\in(0,2)$, so $1-\beta_t\in(-1,1)$. At $\beta_t=2$ the matrix is a
+Householder reflection.
+
+\paragraph{Chunkwise (UT-transform) form.} Inside a chunk, let $\gamma_i=\sum_{k\le i}\log\alpha_k$ be the
+cumulative log-decay, $\Gamma_i=e^{\gamma_i}$, and let $S_0$ be the incoming state. Define the vectors
+actually written to memory, $u_i=\beta_i\big(v_i-\alpha_i S_{i-1}^\top k_i\big)$, so that
+$S_i=\Gamma_i S_0+\sum_{j\le i} e^{\gamma_i-\gamma_j}k_j u_j^\top$. Substituting this expression for
+$S_{i-1}$ into the definition of $u_i$ gives
+$u_i = \beta_i v_i - \beta_i\Gamma_i S_0^\top k_i - \sum_{j<i}\beta_i e^{\gamma_i-\gamma_j}(k_i^\top k_j)\,u_j$,
+i.e.\ the unit lower-triangular linear system
 \begin{equation}
   (I+M)\,U = \operatorname{diag}(\beta)\,V - \operatorname{diag}(\beta\odot\Gamma)\,K S_0, \qquad
-  M_{ij} = \beta_i\, e^{\gamma_i-\gamma_j}\, k_i^\top k_j \ (j<i),
+  M_{ij} = \beta_i\, e^{\gamma_i-\gamma_j}\, k_i^\top k_j \quad (j<i),
+  \label{eq:ut}
 \end{equation}
-after which $O = (Q\odot\Gamma)S_0 + (QK^\top\odot \mathcal{D})\,U$ with decay mask
-$\mathcal{D}_{ij}=e^{\gamma_i-\gamma_j}\mathbb{1}[j\le i]$. \todo{Derive; complexity.}
+where the rows of $U,V,K$ are $u_i^\top, v_i^\top, k_i^\top$. One triangular solve per chunk gives all $u_i$,
+after which the outputs follow from masked matrix products, exactly as for the SSM:
+$O = (Q\odot\Gamma)S_0 + (QK^\top\odot\mathcal{D})\,U$ with $\mathcal{D}_{ij}=e^{\gamma_i-\gamma_j}\mathbb{1}[j\le i]$.
+The cost is $O(T(Ld_k + d_kd_v))$ per head.
 
 \subsection{Beyond negative eigenvalues: rotations and products of reflections}
 \label{sec:math-ext}
-\paragraph{Rotational SSM (Mamba-3 style).} Group the $N$ state dimensions into $N/2$ pairs and read
-each pair as a complex number. The transition becomes a decay \emph{and} an input-dependent rotation,
+\paragraph{Rotational SSM (Mamba-3 style).} Group the $N$ state dimensions into $N/2$ pairs, each read as a
+complex number, and let the transition rotate each pair by an input-dependent angle:
 \begin{equation}
-  h_t = a_t\, R(\theta_t)\, h_{t-1} + (\Delta_t x_t) B_t^\top, \qquad
+  h_t = a_t\, h_{t-1} R(\theta_t)^\top + (\Delta_t x_t) B_t^\top, \qquad
   R(\theta) = \operatorname{diag}\!\Big(\begin{bmatrix}\cos\theta_j & -\sin\theta_j\\ \sin\theta_j & \cos\theta_j\end{bmatrix}\Big)_{j=1}^{N/2},
+  \label{eq:rot}
 \end{equation}
-with $\theta_t = \pi\tanh(W_\theta u_t)\in(-\pi,\pi)^{N/2}$. Since rotations of the same plane commute,
-with $\Phi_t=\sum_{k\le t}\theta_k$ the substitution $\tilde h_t = h_t R(-\Phi_t)^\top$ gives
+with $\theta_t = \pi\tanh(W_\theta u_t)\in(-\pi,\pi)^{N/2}$. Rotations of the same planes commute and
+$R(\phi)R(\psi)=R(\phi+\psi)$. With the cumulative angle $\Phi_t=\sum_{k\le t}\theta_k$ define
+$\tilde h_t = h_t R(\Phi_t)$. Multiplying \eqref{eq:rot} on the right by $R(\Phi_t)$ and using
+$R(\theta_t)^\top R(\Phi_t)=R(\Phi_{t-1})$,
 \begin{equation}
-  \tilde h_t = a_t \tilde h_{t-1} + (\Delta_t x_t)\,\tilde B_t^\top,\quad y_t = \tilde h_t \tilde C_t,\qquad
-  \tilde B_t = R(-\Phi_t)B_t,\ \tilde C_t = R(-\Phi_t)C_t ,
+  \tilde h_t = a_t \tilde h_{t-1} + (\Delta_t x_t)\,\tilde B_t^\top,\qquad y_t = h_tC_t = \tilde h_t \tilde C_t,\qquad
+  \tilde B_t = R(-\Phi_t)B_t,\ \ \tilde C_t = R(-\Phi_t)C_t ,
+  \label{eq:rope}
 \end{equation}
-so the rotation can be moved onto $B$ and $C$ (a data-dependent RoPE) and the real chunked scan is
-reused unchanged. \todo{Derive the substitution. Explain why $\theta=2\pi/3$ implements
-$\mathbb{Z}_3$, and why $\theta=\pi$ recovers the negative eigenvalue $-1$.}
+so the rotation can be moved onto $B$ and $C$, as a data-dependent rotary embedding, and the real chunked
+scan is reused unchanged. Choosing $\theta=\pi$ recovers the eigenvalue $-1$; choosing $\theta=2\pi/3$ for
+token ``1'' and $\theta=-2\pi/3$ for token ``2'' makes the phase of the state equal to the running sum
+modulo 3, which solves $\mathbb{Z}_3$.
 
-\paragraph{DeltaProduct.} Each token applies $n_h$ delta-rule steps with separate keys, values and
-write strengths:
+\paragraph{DeltaProduct.} Each token applies $n_h$ delta-rule steps with separate keys, values and write
+strengths, so the transition becomes a product of $n_h$ generalised Householder matrices:
 \begin{equation}
-  S_t = \Big(\prod_{j=1}^{n_h} \big(I - \beta_{t,j} k_{t,j}k_{t,j}^\top\big)\Big)\alpha_t S_{t-1} + \text{(write terms)}.
+  S_t = \Big(\prod_{j=n_h}^{1} \big(I - \beta_{t,j} k_{t,j}k_{t,j}^\top\big)\Big)\alpha_t S_{t-1} + \text{(write terms)}.
+  \label{eq:product}
 \end{equation}
-With $\beta_{t,j}=2$ each factor is a reflection $H_j$, and $H_2H_1$ is a rotation by twice the angle
-between $k_{t,1}$ and $k_{t,2}$ ($\det = +1$). Hence $n_h=2$ can express $\mathbb{Z}_m$ and the
-rotations in $S_3$, which one reflection per token cannot. \todo{Prove $\det(H_2H_1)=1$ and the angle
-doubling. Implementation: interleave the sub-steps into a sequence of length $n_h T$ (decay at the
-first sub-step, read-out after the last), reusing the chunked algorithm.}
+With $\beta_{t,j}=2$ each factor is a reflection $H_j$ with $\det H_j=-1$. In the plane spanned by two unit
+keys at angle $\varphi$, the product $H_2H_1$ has determinant $+1$ and is a rotation by $2\varphi$. Hence
+$n_h=2$ with $\beta\in(0,2)$ can represent rotations, and with them both $\mathbb{Z}_3$ and $S_3$ (whose
+transpositions are reflections and whose 3-cycles are rotations by $120^\circ$), which a single reflection
+per token cannot.
 
-\subsection{State-tracking as group products}
-\todo{Define the word problem: $y_t = g_1 g_2\cdots g_t$ for $g_i$ in a finite group $G$. Parity:
-$G=\mathbb{Z}_2$; $\mathbb{Z}_m$ needs rotations; $S_3$ is non-abelian. Relate to which transition
-matrices can represent $G$.}
+\subsection{State tracking as group word problems}
+For a finite group $G$ with elements encoded as tokens, the input is a random word $g_1g_2\cdots g_T$ and the
+label at position $t$ is the prefix product $y_t=g_1g_2\cdots g_t$. For $\mathbb{Z}_2$ this is the running
+parity; for $\mathbb{Z}_3$ the running sum modulo 3; for $S_3$ the composition of permutations of three
+objects, which is non-abelian ($ab\ne ba$ in general). A linear recurrence solves the word problem for all
+lengths if it assigns each element $g$ a transition matrix $\rho(g)$ such that $\rho(gh)=\rho(h)\rho(g)$,
+i.e.\ a representation of $G$, and the readout can decode the class from $\rho(g_t)\cdots\rho(g_1)h_0$.
+$\mathbb{Z}_2$ has the real representation $\{1,-1\}$, $\mathbb{Z}_3$ needs rotations by $120^\circ$, and the
+smallest faithful real representation of $S_3$ is 2-dimensional and non-diagonal.
 
 \subsection{Complexity summary}
-\begin{table}[h]\centering
+\begin{table}[htbp]\centering\small
 \begin{tabular}{lccc}\toprule
-Mixer & Training time & Decode time / token & Decode memory \\\midrule
+Mixer (one head) & Training time & Decode time / token & Decode memory \\\midrule
 Attention & $O(T^2 d)$ & $O(T d)$ & $O(T d)$ \\
-Selective SSM (chunked) & $O(T L N P)$ & $O(NP)$ & $O(NP)$ \\
-Rotational SSM & $O(T L N P)$ & $O(NP)$ & $O(NP)$ \\
-Gated DeltaNet (chunked) & $O(T (L d + d^2))$ & $O(d^2)$ & $O(d^2)$ \\
-DeltaProduct$_{n_h}$ & $O(n_h T (L d + d^2))$ & $O(n_h d^2)$ & $O(d^2)$ \\\bottomrule
+Selective SSM (chunked) & $O(T(L(N+P)+NP))$ & $O(NP)$ & $O(NP)$ \\
+Rotational SSM & $O(T(L(N+P)+NP))$ & $O(NP)$ & $O(NP)$ \\
+Gated DeltaNet (chunked) & $O(T(Ld_k + d_kd_v))$ & $O(d_kd_v)$ & $O(d_kd_v)$ \\
+DeltaProduct$_{n_h}$ & $O(n_h T(Ld_k + d_kd_v))$ & $O(n_h d_kd_v)$ & $O(d_kd_v)$ \\\bottomrule
 \end{tabular}
-\caption{Per-layer, per-head cost. $L$ = chunk length. \todo{check and explain}}
+\caption{Asymptotic cost per head. $T$: sequence length, $L$: chunk length, $d$: head dimension. The recurrent
+mixers are linear in $T$ for training and constant in $T$ for generation.}
+\label{tab:complexity}
 \end{table}

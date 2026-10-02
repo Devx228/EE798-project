@@ -1,6 +1,19 @@
 \begin{abstract}
-\todo{Write last. 150--200 words: the problem (fixed-size recurrent memory vs.\ exact attention memory),
-the models studied (selective SSM, Gated DeltaNet, Transformer, hybrids), the tasks (MQAR, selective
-copying, group-word state tracking), the setup (from-scratch PyTorch/Triton, single RTX 4050), and the
-two or three headline numbers.}
+Linear-time recurrent sequence models such as Mamba-2 and Gated DeltaNet are replacing most attention
+layers in recent large language models because they keep a fixed-size state instead of a key--value cache
+that grows with the context. This report studies what that \emph{fading memory} costs and what it buys.
+We implement, from scratch, a selective state-space model (SSM), Gated DeltaNet and a Transformer baseline,
+each with a reference recurrence and a verified chunkwise-parallel training algorithm, plus two recent
+extensions: a rotational (complex-valued, Mamba-3-style) SSM and DeltaProduct. All models are trained on a
+single RTX~4050 laptop GPU on synthetic pattern-recognition probes: state tracking in the groups
+$\mathbb{Z}_2$, $\mathbb{Z}_3$ and $S_3$ with length generalisation, and multi-query associative recall.
+Three results stand out. (i) Allowing negative eigenvalues makes the SSM solve parity at 8$\times$ the
+training length (0.999 vs.\ 0.546). (ii) DeltaProduct, a product of two generalised Householder
+reflections per token, is the only model that learns the non-abelian group $S_3$ on all seeds and keeps
+0.912 accuracy at 8$\times$ the training length, versus 0.542 for Gated DeltaNet. (iii) Recall degrades
+exactly when the number of stored pairs outgrows the recurrent state, while Gated DeltaNet stores 64 pairs
+with half the state of an SSM that fails. We also document failures: models that fit the training length
+perfectly but learn shortcuts, a rotational SSM that can represent $\mathbb{Z}_3$ but does not learn it
+(confirmed by reading its angles from the weights), and an under-budgeted recall sweep that ranked models
+wrongly. A GPU study shows that, at feasible lengths, kernel quality dominates asymptotic complexity.
 \end{abstract}

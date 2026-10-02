@@ -1,24 +1,57 @@
 \section{Dataset and Experimental Setup}
 \label{sec:setup}
-% Guideline 2.8: data, sizes, splits, preprocessing, protocol, hardware/software, hyperparameters, baselines.
 
-\paragraph{Tasks (synthetic, generated on the fly).}
+\paragraph{Tasks.} All data are synthetic and generated on the fly; no external dataset is used.
 \begin{itemize}
-  \item \textbf{MQAR} \citep{arora2024zoology}: $n$ key--value pairs then $n$ queries; vocabulary 4096;
-        $T\in\{256,512\}$, $n\in\{8,16,32,64\}$.
-  \item \textbf{Selective copying} \citep{gu2023mamba}: 16 tokens among noise; train $T=256$, test $T=1024$.
-  \item \textbf{Group words}: prefix products in $\mathbb{Z}_2$, $\mathbb{Z}_3$, $S_3$; train $T=64$,
-        test $T\in\{256,512\}$.
+  \item \textbf{Group word problems (RQ2).} Groups $\mathbb{Z}_2$ (2 tokens), $\mathbb{Z}_3$ (3 tokens) and $S_3$
+        (6 tokens). Training sequences have length 64; every position is labelled with the prefix product.
+        Training draws $4000\times128 = 512{,}000$ fresh sequences per run.
+  \item \textbf{Multi-query associative recall (RQ1).} Following \citet{arora2024zoology}: sequence length 256,
+        vocabulary 512 (255 possible keys, 256 possible values), $n\in\{16,32,64\}$ key--value pairs, one query
+        per pair. Up to $20{,}000\times64 = 1.28$M fresh sequences per run.
 \end{itemize}
-Training data are sampled fresh every step (no fixed training set); evaluation uses fixed held-out
-sets of 1024 sequences drawn with a different seed. \todo{number of training sequences seen = steps
-$\times$ batch size.}
 
-\paragraph{Models and baselines.} \todo{Table: pattern, $d_{\text{model}}$, layers, parameters,
-state size. Baselines: Transformer (attention only); comparisons: SSM, Gated DeltaNet, hybrids.}
+\paragraph{Evaluation protocol.} Each run is evaluated on fixed held-out sets of 1024 sequences drawn with a
+different random seed from the training stream. For state tracking we evaluate at the training length (64)
+and at 256 and 512 (4$\times$ and 8$\times$ longer) to test length generalisation. We report token accuracy
+over scored positions, mean $\pm$ standard deviation over three seeds for state tracking. For recall we
+report the final accuracy and the number of steps until the evaluation accuracy first exceeded 90\%.
 
-\paragraph{Hardware and software.} NVIDIA RTX 4050 Laptop GPU (6\,GB, Ada), \todo{CPU, RAM, OS / WSL2,
-driver, CUDA, PyTorch, Triton versions}.
+\paragraph{Models.} All models have two layers and $d_{\text{model}}=128$; Table~\ref{tab:models} lists the
+configurations. Within each task the recurrent models are matched in total state size (8192 floats) wherever
+possible, so differences reflect the transition structure rather than memory size; in the recall study the
+state size is varied deliberately.
 
-\paragraph{Hyperparameters.} \todo{Table from configs/: steps, batch size, learning rates, warmup,
-weight decay, clipping, precision, seeds.}
+\begin{table}[htbp]\centering
+\resizebox{\linewidth}{!}{\begin{tabular}{llrr}\toprule
+Task & Model (mixer configuration) & Parameters & State (floats) \\\midrule
+State tracking & Transformer (4 heads, RoPE) & 0.33M & grows with $T$ \\
+ & Selective SSM ($N=16$, 8 heads of $P=32$), $a\in(0,1)$ or $(-1,1)$ & 0.41M & 8{,}192 \\
+ & Gated DeltaNet (4 heads, $d_k=d_v=32$), $\beta\in(0,1)$ or $(0,2)$ & 0.37M & 8{,}192 \\
+ & Rotational SSM ($N=16$, 8 angle pairs) & 0.41M & 8{,}192 \\
+ & DeltaProduct, $n_h=2$, $\beta\in(0,1)$ or $(0,2)$ & 0.44M & 8{,}192 \\\midrule
+Recall & Attention + short conv (1 head) & 0.20M & grows with $T$ \\
+ & Selective SSM, $N=16$ / $N=64$ & 0.28M / 0.30M & 8{,}192 / 32{,}768 \\
+ & Gated DeltaNet (2 heads, $d_k=d_v=64$) & 0.23M & 16{,}384 \\\bottomrule
+\end{tabular}}
+\caption{Model configurations (two layers, $d_{\text{model}}=128$; state-tracking models include a SwiGLU MLP
+with ratio 2, recall models have no MLP). Parameter counts include the embedding.}
+\label{tab:models}
+\end{table}
+
+\paragraph{Hyperparameters.} State tracking: 4000 steps, batch 128, peak learning rate $10^{-3}$, seeds 0--2.
+Recall: up to 20{,}000 steps, batch 64, learning rate $10^{-3}$, early stopping at 99\% accuracy, evaluation
+every 500 steps, one seed; this budget was chosen by the calibration experiment described in
+Section~\ref{sec:discussion}. Common settings are given in Section~\ref{sec:method} (AdamW, warm-up and cosine
+schedule, clipping, bfloat16). Efficiency benchmarks use single layers with $d_{\text{model}}=256$, batch 4,
+bfloat16; the scan-only benchmark uses float32 with 8 heads and $P=N=64$.
+
+\paragraph{Baselines.} The Transformer is the reference for both abilities: it has an exact memory, so it is
+the natural upper bound for recall, and it is known to fail at length-generalising state tracking. Within
+each recurrent family the variant with positive eigenvalues is the baseline for the variants that extend the
+eigenvalue range or the transition structure.
+
+\paragraph{Hardware and software.} All experiments ran on a single NVIDIA GeForce RTX 4050 Laptop GPU (6\,GB,
+Ada architecture) under Ubuntu in WSL2 on Windows, with PyTorch 2 (CUDA build) and Triton. Training one
+state-tracking model takes 1.3--5 minutes; the whole study, including the discarded first recall sweep,
+took roughly 11 GPU-hours.

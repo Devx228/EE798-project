@@ -1,21 +1,71 @@
 \section{Theory and Conceptual Explanation}
 \label{sec:theory}
-% Guideline 2.4: intuition, assumptions, architecture, design choices, advantages, limitations. Diagrams!
 
-\todo{Figure: one block of each mixer (attention / selective SSM / Gated DeltaNet) side by side.}
+All models in this study share one skeleton: a stack of residual blocks, each consisting of a normalisation,
+a \emph{token mixer} that moves information along the sequence, and optionally a per-token MLP. Only the
+mixer differs. Table~\ref{tab:mixers} summarises the three families before we discuss the intuition behind
+each.
 
-\paragraph{Two kinds of memory.} \todo{Attention = exact, growing, content-addressable memory.
-Recurrent mixer = fixed-size summary updated online. Intuition for why recall degrades once the
-number of stored facts exceeds what the state can hold.}
+\begin{table}[htbp]\centering\small
+\begin{tabular}{p{2.6cm}p{3.6cm}p{3.4cm}p{4.6cm}}\toprule
+Mixer & Memory & Update per token & Intuition \\\midrule
+Softmax attention & all past keys and values (grows with $T$) & append $(k_t, v_t)$ & exact lookup by content
+\\[2pt]
+Selective SSM & matrix $h_t\in\R^{P\times N}$ per head (fixed) & decay all, add $x_t B_t^\top$ &
+leaky running summary; decay $a_t$ chosen per token \\[2pt]
+Gated DeltaNet & matrix $S_t\in\R^{d_k\times d_v}$ per head (fixed) & decay, erase value at $k_t$, write
+$v_t$ & key--value table that can be overwritten \\\bottomrule
+\end{tabular}
+\caption{The three token mixers compared in this report.}
+\label{tab:mixers}
+\end{table}
 
-\paragraph{Selectivity.} \todo{Why input-dependent $\Delta_t$, $B_t$, $C_t$ let the SSM choose what to
-store and what to forget (needed for selective copying).}
+\paragraph{Two kinds of memory.} Attention keeps every past token. To answer a query it compares the query
+with all stored keys and returns a weighted average of the matching values, so retrieving one fact among
+many is as easy as among few, at a cost that grows with the context. A recurrent mixer instead keeps a
+summary of fixed size. Every new token is folded into the summary and the old content is decayed. This is
+efficient, but it means the model must decide in advance what to keep, and once more facts arrive than the
+summary can hold, they start to interfere. We call this \emph{fading memory}. It predicts that recall
+accuracy of recurrent models should collapse once the number of facts exceeds a capacity set by the state
+size, while attention should not care.
 
-\paragraph{The delta rule as online regression.} \todo{Erase-then-write: the state behaves as a
-key--value memory updated by one gradient step on $\tfrac12\lVert S^\top k_t - v_t\rVert^2$.}
+\paragraph{Selectivity.} In a classical (time-invariant) SSM every token is written into the state with the
+same strength and forgotten at the same rate, regardless of its content. A selective SSM computes the step
+size $\Delta_t$ and the input and output maps $B_t, C_t$ from the current token. A large $\Delta_t$ means
+``reset and focus on this token'' (strong write, fast decay); a small $\Delta_t$ means ``ignore this token
+and keep the memory''. This lets the model filter noise and keep relevant tokens, which time-invariant
+models cannot do.
 
-\paragraph{Why eigenvalues matter for state tracking.} \todo{Parity needs a sign flip; decays in
-$(0,1)$ can only shrink. Rotations for $\mathbb{Z}_m$; non-diagonal transitions for $S_3$.}
+\paragraph{The delta rule as online regression.} Gated DeltaNet treats its state $S$ as a linear map from
+keys to values, $S^\top k\approx v$. When a new pair $(k_t, v_t)$ arrives, it takes one gradient step on the
+squared error $\tfrac12\lVert S^\top k_t - v_t\rVert^2$ with learning rate $\beta_t$. Concretely, it first
+reads what the memory currently returns for $k_t$, then replaces it by $v_t$. Additive models, by contrast,
+can only add, so old associations under similar keys interfere forever. This predicts that the delta rule
+uses a given state size more efficiently for recall.
 
-\paragraph{Advantages and limitations.} \todo{Linear time, constant-memory decoding vs.\ lossy recall,
-restricted expressivity, sensitivity to hyperparameters.}
+\paragraph{Why eigenvalues matter for state tracking.} For state tracking the issue is not capacity but
+expressivity. Consider parity: the state must flip between two values every time a 1 arrives. If the
+recurrence is $h_t = a_t h_{t-1} + \dots$ with $a_t\in(0,1)$, every step can only shrink the state towards a
+fixed point; it can never flip its sign. A transition $a_t=-1$ flips it exactly. More generally, tracking a
+finite group requires the transitions to \emph{represent} the group: parity needs a sign flip (eigenvalue
+$-1$), counting modulo 3 needs a rotation by $120^\circ$ (complex eigenvalues $e^{\pm 2\pi i/3}$), and the
+permutation group $S_3$ needs non-commuting, non-diagonal transitions. This gives a ladder of predictions:
+\begin{itemize}
+  \item real positive diagonal transitions (Mamba-2): none of the three groups;
+  \item real diagonal transitions with negative values \citep{grazzi2025unlocking}: $\mathbb{Z}_2$;
+  \item complex/rotational diagonal transitions (Mamba-3 style): $\mathbb{Z}_2$ and $\mathbb{Z}_3$;
+  \item products of Householder matrices (DeltaProduct): all three.
+\end{itemize}
+An important caveat, which our experiments make concrete, is that \emph{being able to represent} a solution
+does not guarantee that gradient descent \emph{finds} it.
+
+\paragraph{Length generalisation as the test of a rule.} A model trained on length-64 sequences may reach
+perfect training accuracy through a shortcut that only works for short inputs, for example by memorising
+statistics of the first few dozen steps. A model that learned the actual group operation applies it at any
+length. We therefore always evaluate at 4$\times$ and 8$\times$ the training length.
+
+\paragraph{Advantages and limitations.} Recurrent mixers give linear-time training, constant-memory
+generation and, with the right transitions, exact state tracking at any length. Their limitations are
+lossy recall, restricted expressivity when the transitions are too simple, and, as we will see, training
+dynamics that can be harder than those of attention. Hybrid architectures combine a few attention layers for
+recall with many recurrent layers for efficiency.
