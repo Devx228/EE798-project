@@ -45,8 +45,27 @@ Ring: the training length. Shading: min--max over 3 seeds.}
 \label{fig:rotation-length}
 \end{figure}
 
-\todo{Table: RQ1 MQAR accuracy vs.\ number of pairs (with state size column).}
-\todo{Table: RQ3 hybrid placement.}
+\paragraph{Associative recall (RQ1).} MQAR, length 256, vocabulary 512, $d_{\text{model}}=128$, 2 layers,
+up to 20k steps with early stopping at 99\% (budget from the calibration in Sec.~\ref{sec:discussion}); one seed.
+
+\begin{table}[h]\centering\small
+\input{tables/recall_capacity}
+\caption{RQ1: recall accuracy and steps until 90\% accuracy (``$>$20k'': never reached). State = floats of
+recurrent memory per sequence across both layers; attention keeps a KV cache that grows with the input.}
+\label{tab:recall}
+\end{table}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.62\linewidth]{figures/recall_capacity}
+\caption{Recall accuracy vs.\ number of key-value pairs to remember.}
+\label{fig:recall}
+\end{figure}
+\todo{Interpret: attention solves every size in 500 steps. The SSM breaks once the pairs outgrow its
+state (N=16: fails at 32; N=64: fails at 64), so capacity scales with state size. Gated DeltaNet, with
+half the state of SSM N=64, still solves 64 pairs: the delta rule (erase-then-write) uses a fixed state
+far more efficiently than additive accumulation. Steps-to-90\% grow with the number of pairs for every
+recurrent model. Caveat: one seed, and ``failed within 20k steps'' is an upper bound on what is learnable,
+not a proof of impossibility; the monotone dependence on $N$ supports the capacity reading.}
 \paragraph{Efficiency on one GPU (RQ4).} All measurements: RTX 4050 Laptop GPU (6\,GB), bf16, one layer,
 $d_{\text{model}}=256$, batch 4.
 

@@ -61,6 +61,20 @@ precision, and every model's token-by-token decoding is tested against its paral
 
 ![extensions](report/figures/state_tracking_ext.png)
 
+**RQ1, associative recall** (MQAR, up to 20k steps, early stop at 99%; one seed):
+
+| Model | State (floats) | 16 pairs | 32 pairs | 64 pairs |
+|---|---|---|---|---|
+| Attention + short conv | grows with input | **1.000** | **1.000** | **0.999** |
+| SSM, N=16 | 8,192 | 0.991 | 0.134 | 0.074 |
+| SSM, N=64 | 32,768 | 0.991 | 0.991 | 0.053 |
+| Gated DeltaNet | 16,384 | 0.997 | 0.991 | **0.991** |
+
+SSM recall breaks once the pairs outgrow its state. Gated DeltaNet holds 64 pairs with half the state
+of SSM N=64, because the delta rule overwrites rather than accumulates.
+
+![recall](report/figures/recall_capacity.png)
+
 Smoke-test note for RQ1: on MQAR, a 2-layer attention model with one 64-dimensional head reaches
 about 91% in 3k steps, while the same model with 2 or 4 narrower heads stalls near 53%. Recall
 results are very sensitive to such choices, so the sweeps tune the learning rate per architecture.
@@ -118,7 +132,9 @@ docs/               setup notes
 - [x] Extensions: rotational SSM (Mamba-3 style) and DeltaProduct, with tests
 - [x] GPU sweeps for the extensions (`state_tracking`, `rotation_length`)
 - [x] Angle figure from the GPU checkpoint (`report/figures/rotation_angles.png`)
-- [ ] Remaining sweeps, qualitative figures (state heatmaps, attention maps)
+- [x] RQ1 recall capacity (after a budget calibration; first attempt kept in `results/recall_capacity_v1`)
+- [x] RQ4 efficiency benchmark on the RTX 4050
+- [ ] ~~RQ3 hybrid placement~~ (dropped to keep the scope focused)
 - [ ] Triton backward kernel, then compare with the chunked PyTorch path during training
 - [ ] Stretch: complex / rotational transitions (Mamba-3 style) for Z_m, small TinyStories language model
 - [ ] Write the report

@@ -292,15 +292,73 @@ def benchmark(results_dir: Path):
     print(f"wrote efficiency_layer, efficiency_decode figures and scan_backends table ({gpu})")
 
 
+RECALL_MODELS = {  # label -> (display name, colour, marker); SSM state sizes share the blue family
+    "attention_conv": ("Attention + short conv (growing KV cache)", FAMILY_COLOR["attention"], "o"),
+    "ssm": ("SSM, N=16 (8k-float state)", "#86b6ef", "s"),
+    "ssm_N64": ("SSM, N=64 (33k-float state)", "#104281", "s"),
+    "deltanet": ("Gated DeltaNet (16k-float state)", FAMILY_COLOR["deltanet"], "D"),
+}
+
+
+def recall_capacity(csv_path: Path):
+    """RQ1: MQAR accuracy vs number of key-value pairs (figure + table with steps-to-90%)."""
+    rows = read_rows(csv_path)
+    kvs = sorted({int(r["kv"][2:]) for r in rows})
+    get = {(r["model"], int(r["kv"][2:])): r for r in rows}
+    plt.rcParams.update({"font.family": "sans-serif", "mathtext.fontset": "dejavusans"})
+    fig, ax = plt.subplots(figsize=(5.6, 3.4))
+    style_axes(ax)
+    for model, (label, color, marker) in RECALL_MODELS.items():
+        pts = [(kv, float(get[(model, kv)]["acc_main"])) for kv in kvs if (model, kv) in get]
+        if pts:
+            ax.plot(*zip(*pts), color=color, marker=marker, markersize=6.5, markeredgecolor="white",
+                    markeredgewidth=1.2, linewidth=2, label=label, zorder=3)
+    ax.set_xscale("log", base=2)
+    ax.set_xticks(kvs, [str(k) for k in kvs])
+    ax.minorticks_off()
+    ax.set_ylim(0, 1.04)
+    ax.set_xlabel("key-value pairs to remember", fontsize=8.5, color=INK_2)
+    ax.set_ylabel("recall accuracy", fontsize=8.5, color=INK_2)
+    ax.set_title("Associative recall (MQAR) vs. memory demand", fontsize=10, color=INK, loc="left")
+    ax.legend(frameon=False, fontsize=7.5, labelcolor=INK_2, loc="lower left")
+    fig.tight_layout()
+    for ext in ("pdf", "png"):
+        fig.savefig(FIG_DIR / f"recall_capacity.{ext}", dpi=200, facecolor="white")
+    plt.close(fig)
+
+    lines = [r"\begin{tabular}{lr" + "cc" * len(kvs) + "}", r"\toprule",
+             r" & & " + " & ".join(rf"\multicolumn{{2}}{{c}}{{{kv} pairs}}" for kv in kvs) + r" \\",
+             " ".join(rf"\cmidrule(lr){{{3 + 2 * i}-{4 + 2 * i}}}" for i in range(len(kvs))),
+             "Model & State & " + " & ".join("acc. & steps" for _ in kvs) + r" \\", r"\midrule"]
+    names = {"attention_conv": "Attention + conv", "ssm": "SSM, $N{=}16$", "ssm_N64": "SSM, $N{=}64$",
+             "deltanet": "Gated DeltaNet"}
+    for model, name in names.items():
+        state = next((get[(model, kv)]["state_size"] for kv in kvs if (model, kv) in get), "")
+        state = f"{int(state):,}" if state else "$O(T)$"
+        cells = []
+        for kv in kvs:
+            r = get.get((model, kv))
+            if r is None:
+                cells += ["--", "--"]
+                continue
+            acc = float(r["acc_main"])
+            cells += [rf"\textbf{{{acc:.3f}}}" if acc >= 0.99 else f"{acc:.3f}", r["steps_to_90"] or r"$>$20k"]
+        lines.append(f"{name} & {state} & " + " & ".join(cells) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    (TAB_DIR / "recall_capacity.tex").write_text("\n".join(lines) + "\n")
+    print(f"wrote {FIG_DIR / 'recall_capacity.pdf'} and {TAB_DIR / 'recall_capacity.tex'}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("sweep", choices=["state_tracking", "rotation_length", "benchmark"])
+    ap.add_argument("sweep", choices=["state_tracking", "rotation_length", "benchmark", "recall_capacity_v2"])
     ap.add_argument("--results", type=Path, default=ROOT / "results")
     args = ap.parse_args()
     if args.sweep == "benchmark":
         benchmark(args.results / "benchmark")
     else:
-        {"state_tracking": state_tracking, "rotation_length": rotation_length}[args.sweep](
+        {"state_tracking": state_tracking, "rotation_length": rotation_length,
+         "recall_capacity_v2": recall_capacity}[args.sweep](
             args.results / args.sweep / "summary.csv")
 
 
