@@ -31,6 +31,16 @@ on opposite dashed lines within the same pair. GPU checkpoint, training length 1
 \label{fig:rotation-angles}
 \end{figure}
 
+\paragraph{Methodology lesson: a training budget that is too short ranks models wrongly.}
+\todo{Rewrite in own words. First recall sweep (results/recall\_capacity\_v1: length 512, vocabulary 4096,
+4k steps): even attention stayed at 12--30\% with 8 pairs and accuracy was non-monotonic in the number
+of pairs (SSM $N{=}64$: 41\% at 8 pairs, 99\% at 16). Recall is learned in a sudden jump, so a fixed small
+budget measures \emph{whether a run jumped in time}. Calibration (16 pairs, length 256, up to 20k steps,
+early stopping) gives every model $\ge$99\%, with steps-to-90\%: attention + short conv 500, Gated
+DeltaNet 1500, SSM 5500, plain attention 6500. A short causal convolution, which supplies the previous
+token for free, makes attention learn the lookup $\sim13\times$ faster; we therefore use it as the
+attention baseline for the capacity sweep.}
+
 \paragraph{Hyperparameter sensitivity.} \todo{Attention head width and learning rate on MQAR
 (first observation: one 64-dim head learns the lookup, 2--4 narrower heads stall near 53\%).}
 \paragraph{Ablations.} \todo{state size $N$, chunk size (speed only), short convolution on/off.}

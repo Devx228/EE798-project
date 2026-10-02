@@ -1,0 +1,5 @@
+run,model,seed,params,state_size,steps,steps_to_90,train_time_s,peak_mem_mb,acc_main,seq_acc_main
+attention,attention,0,196992,,7000,6500,132.6,223.7,0.9903,0.8613
+attention_conv,attention_conv,0,200832,,1000,500,30.6,287.9,0.9995,0.9922
+ssm,ssm,0,276208,8192,10500,5500,487.6,638.9,0.9905,0.8613
+deltanet,deltanet,0,234768,16384,2000,1500,174.1,575.1,0.9965,0.9443
